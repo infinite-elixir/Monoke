@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>{% block title %}Monoke{% endblock %}</title>
+  <link rel="stylesheet" href="{{ asset('style.css') }}">
+  <script src="{{ asset('app.js') }}"></script>
+  <script src="{{ asset('htmx.min.js') }}" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="Monoke home">Monoke</a>
+
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/"{% if active_page == "creators" %} aria-current="page"{% endif %}>Creators</a>
+        <a href="/links"{% if active_page == "links" %} aria-current="page"{% endif %}>Links</a>
+      </nav>
+
+      <div class="header-actions">
+        <button class="button button-quiet" type="button" data-theme-toggle aria-pressed="false">
+          Theme
+        </button>
+        <button class="button button-quiet" type="button" data-nsfw-toggle aria-pressed="true">
+          Blur: on
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div id="flash-region" class="flash-region" aria-live="polite">
+    {% include "partials/flash.html" %}
+  </div>
+
+  <main id="content" class="page">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <span>Data <code>{{ data_dir }}</code></span>
+    <span>Last sync <time datetime="{{ last_sync or '' }}">{{ last_sync or "never" }}</time></span>
+    <span class="footer-version">v{{ app_version }}</span>
+  </footer>
+</body>
+</html>

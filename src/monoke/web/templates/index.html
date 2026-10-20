@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}Monoke · Local cum.st archive{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Local archive</p>
+    <h1>Everything you saved, in one place.</h1>
+    <p class="lede">
+      Monoke keeps your cum.st creators, captions, links and attachment metadata in a
+      private SQLite database. Nothing leaves this machine.
+    </p>
+  </section>
+
+  {{ m.empty_state(
+    "No creators yet",
+    "Paste a cum.st creator URL to start. The add-creator form arrives in T4.2.",
+    "/links",
+    "Browse links"
+  ) }}
+{% endblock %}

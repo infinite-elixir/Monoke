@@ -1,11 +1,12 @@
-"""HTTP routes. The dashboard and archive pages land in T4.2–T4.6."""
+"""HTTP routes for the app shell and archive pages."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from ..config import VERSION, get_settings
+from .templating import render
 
 router = APIRouter()
 
@@ -21,12 +22,10 @@ def healthz() -> dict[str, object]:
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
-def index() -> str:
-    return (
-        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
-        "<title>Monoke</title></head><body>"
-        f"<h1>Monoke {VERSION}</h1>"
-        "<p>Scaffold is running. The dashboard arrives in T4.2.</p>"
-        "<p><a href='/healthz'>/healthz</a> &middot; <a href='/docs'>/docs</a></p>"
-        "</body></html>"
-    )
+def index(request: Request):
+    return render(request, "index.html", active_page="creators")
+
+
+@router.get("/links", response_class=HTMLResponse, include_in_schema=False)
+def links(request: Request):
+    return render(request, "links.html", active_page="links")

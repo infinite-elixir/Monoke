@@ -1,0 +1,66 @@
+{# Shared presentation macros. Keep markup here, logic in Python or app.js. #}
+
+{% macro badge(category, label=None) -%}
+  {% set name = category or "other" %}
+  <span class="badge badge-{{ name }}">{{ label or (name|replace("_", " ")) }}</span>
+{%- endmacro %}
+
+{% macro link_row(link) -%}
+  {% set resolved = link.get("resolved_url") %}
+  {% set href = resolved or link.get("url") %}
+  {% set creator_id = link.get("creator_id") %}
+  {% set post_id = link.get("post_id") %}
+  <tr class="link-row">
+    <td>{{ badge(link.get("category")) }}</td>
+    <td class="link-label">{{ link.get("label") or "—" }}</td>
+    <td class="link-url">
+      {% if href %}
+        <a href="{{ href }}" target="_blank" rel="noopener noreferrer nofollow" title="{{ href }}">{{ href }}</a>
+        <button class="button button-small" type="button" data-copy="{{ href }}" aria-label="Copy link">Copy</button>
+      {% else %}
+        <span class="muted">no URL</span>
+      {% endif %}
+    </td>
+    <td class="link-post">
+      {% if creator_id and post_id %}
+        <a href="/c/{{ creator_id }}/p/{{ post_id }}">{{ link.get("post_title") or post_id }}</a>
+      {% else %}
+        {{ link.get("post_title") or "—" }}
+      {% endif %}
+    </td>
+    <td class="link-date">
+      {% if link.get("published") %}
+        <time datetime="{{ link.get('published') }}">{{ link.get("published") }}</time>
+      {% else %}
+        <span class="muted">—</span>
+      {% endif %}
+    </td>
+  </tr>
+{%- endmacro %}
+
+{% macro paginator(page, pages, base_url, label="Pagination") -%}
+  {% if pages and pages > 1 %}
+    {% set sep = "&" if "?" in base_url else "?" %}
+    <nav class="paginator" aria-label="{{ label }}">
+      {% if page > 1 %}
+        <a class="button button-small" href="{{ base_url }}{{ sep }}page={{ page - 1 }}" rel="prev">Previous</a>
+      {% else %}
+        <span class="button button-small" aria-disabled="true">Previous</span>
+      {% endif %}
+      <span class="paginator-status">Page {{ page }} of {{ pages }}</span>
+      {% if page < pages %}
+        <a class="button button-small" href="{{ base_url }}{{ sep }}page={{ page + 1 }}" rel="next">Next</a>
+      {% else %}
+        <span class="button button-small" aria-disabled="true">Next</span>
+      {% endif %}
+    </nav>
+  {% endif %}
+{%- endmacro %}
+
+{% macro empty_state(title, message="", href=None, action="Continue") -%}
+  <section class="empty-state">
+    <h2>{{ title }}</h2>
+    {% if message %}<p>{{ message }}</p>{% endif %}
+    {% if href %}<a class="button button-primary" href="{{ href }}">{{ action }}</a>{% endif %}
+  </section>
+{%- endmacro %}

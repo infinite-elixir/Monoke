@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}Links · Monoke{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <p class="eyebrow">Every saved link</p>
+    <h1>Links</h1>
+    <p class="lede">
+      The flat link explorer with filters, grouping and exports arrives in T4.5.
+    </p>
+  </section>
+
+  {{ m.empty_state(
+    "No links to show yet",
+    "Sync a creator first; every caption link will land here, classified.",
+    "/",
+    "Back to creators"
+  ) }}
+{% endblock %}
