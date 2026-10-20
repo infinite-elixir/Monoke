@@ -22,7 +22,7 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T3.2 | [Normalization and classification](T3.2-classification.md) | Extraction | M | T3.1 | done |
 | T3.3 | [Shortener resolution](T3.3-shorteners.md) | Extraction | S | T3.2, T1.2 | done |
 | T3.4 | [Attachments, media URLs, tags](T3.4-files-and-flags.md) | Extraction | M | T3.1 | done |
-| T3.5 | [CSV and JSON exporters](T3.5-exports.md) | Extraction | S | T3.2 | todo |
+| T3.5 | [CSV and JSON exporters](T3.5-exports.md) | Extraction | S | T3.2 | done |
 | T4.1 | [App shell, templates, static assets](T4.1-shell.md) | UI | S | T0.1 | todo |
 | T4.2 | [Dashboard and add-creator flow](T4.2-dashboard.md) | UI | M | T4.1, T2.1 | todo |
 | T4.3 | [Creator page with facets and search](T4.3-creator-page.md) | UI | L | T4.2, T3.2 | todo |
