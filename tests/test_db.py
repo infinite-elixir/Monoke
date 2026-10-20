@@ -6,15 +6,6 @@ import sqlite3
 import pytest
 
 from monoke import db
-from monoke.config import Settings
-
-
-@pytest.fixture()
-def conn(tmp_path):
-    connection = db.connect(Settings(data_dir=tmp_path))
-    db.migrate(connection)
-    yield connection
-    connection.close()
 
 
 def make_creator(conn: sqlite3.Connection, service_id: str = "274608") -> int:

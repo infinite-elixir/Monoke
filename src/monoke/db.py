@@ -753,6 +753,7 @@ def cache_put(conn: sqlite3.Connection, url: str, body: str) -> None:
         """,
         (url, now_iso(), body),
     )
+    conn.commit()
 
 
 def cache_delete(conn: sqlite3.Connection, url: str) -> None:
