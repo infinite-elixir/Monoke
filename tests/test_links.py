@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 
 from monoke.extract.classify import Category
-from monoke.extract.links import MAX_LINKS, extract_links
+from monoke.extract.links import MAX_LINKS, extract_links, extract_links_report
+from monoke.extract.post import extract_post
 from monoke.models import PostDetail
 
 
@@ -100,6 +101,54 @@ def test_link_cap():
     caption = "".join(f'<a href="https://example.com/{i}">x</a>' for i in range(MAX_LINKS + 20))
     rows = extract_links(detail(caption))
     assert len(rows) == MAX_LINKS
+
+
+def test_cap_warning_only_when_exceeded():
+    exact = "".join(f'<a href="https://example.com/{i}">x</a>' for i in range(MAX_LINKS))
+    over = exact + f'<a href="https://example.com/{MAX_LINKS}">x</a>'
+
+    rows, overflow = extract_links_report(detail(exact))
+    assert len(rows) == MAX_LINKS
+    assert overflow is False
+    assert extract_post(detail(exact)).warnings == []
+
+    rows, overflow = extract_links_report(detail(over))
+    assert len(rows) == MAX_LINKS
+    assert overflow is True
+    assert extract_post(detail(over)).warnings
+
+
+def test_sources_are_visited_in_ticket_order():
+    caption = (
+        '<p>bare: https://bare.example/x '
+        '<img src="https://img.example/i.png" alt="pic"></p>'
+        '<a href="https://anchor.example/a">anchor</a>'
+    )
+    rows = extract_links(
+        detail(caption, links=[{"url": "https://api.example/z"}])
+    )
+    assert [row.origin for row in rows] == [
+        "caption",
+        "caption",
+        "caption",
+        "api_links",
+    ]
+    assert [row.url for row in rows] == [
+        "https://anchor.example/a",
+        "https://bare.example/x",
+        "https://img.example/i.png",
+        "https://api.example/z",
+    ]
+
+
+def test_api_links_accept_plain_strings():
+    post = PostDetail.model_validate(
+        {"id": "1", "service": "patreon", "links": ["https://mega.nz/file/z"]}
+    )
+    rows = extract_links(post)
+    assert len(rows) == 1
+    assert rows[0].category is Category.MEGA
+    assert rows[0].origin == "api_links"
 
 
 def test_caption_is_not_required():

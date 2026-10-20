@@ -65,3 +65,13 @@ def test_normalize_never_raises_on_malformed_input():
     for url in ["http://[::1", "://bad", "https://exa mple.com/x", "%%%"]:
         assert isinstance(normalize(url), str)
         assert isinstance(classify(url), Category)
+
+
+def test_label_never_overrides_host_classification():
+    assert classify("https://example.com/x", label="MEGA") is Category.OTHER
+    assert classify("https://unknown.example/x", label="DRIVE") is Category.OTHER
+
+
+def test_none_input_is_safe():
+    assert normalize(None) == ""
+    assert classify(None) is Category.OTHER

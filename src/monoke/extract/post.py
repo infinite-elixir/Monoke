@@ -7,7 +7,7 @@ from typing import Any
 
 from ..cumst.media import ext_for, media_url, original_url, thumb_url
 from ..models import Attachment, PostDetail
-from .links import MAX_LINKS, extract_links
+from .links import MAX_LINKS, extract_links_report
 from .sanitize import caption_text, sanitize_html
 
 _POSITION_LAST = 10**9
@@ -87,9 +87,9 @@ def extract_tags(post: PostDetail) -> list[dict[str, Any]]:
 
 def extract_post(post: PostDetail) -> ExtractedPost:
     html = sanitize_html(post.caption_html or post.caption)
-    links = extract_links(post)
+    links, cap_exceeded = extract_links_report(post)
     warnings: list[str] = []
-    if len(links) >= MAX_LINKS:
+    if cap_exceeded:
         warnings.append(f"caption link cap reached ({MAX_LINKS}); extra links dropped")
 
     return ExtractedPost(

@@ -60,16 +60,21 @@ def _host_matches(host: str, domains: frozenset[str] | set[str] | tuple[str, ...
     return any(host == domain or host.endswith("." + domain) for domain in domains)
 
 
-def _split(url: str):
+def _split(url: str | None):
     try:
-        return urlsplit(url.strip())
-    except ValueError:
+        return urlsplit((url or "").strip())
+    except (AttributeError, ValueError):
         return None
 
 
-def normalize(url: str) -> str:
+def normalize(url: str | None) -> str:
     """Stable identity for a URL; malformed input is returned trimmed, never raised."""
-    text = (url or "").strip()
+    if url is None:
+        return ""
+    try:
+        text = url.strip() if isinstance(url, str) else str(url).strip()
+    except (TypeError, ValueError):
+        return ""
     if not text:
         return text
 
@@ -119,8 +124,14 @@ def normalize(url: str) -> str:
     return urlunsplit((scheme, netloc, path, urlencode(pairs), ""))
 
 
-def classify(url: str) -> Category:
-    """Classify by host and path; unknown/malformed URLs are ``other``."""
+def classify(url: str | None, label: str | None = None) -> Category:
+    """Classify by host and path; unknown/malformed URLs are ``other``.
+
+    ``label`` is accepted for API compatibility but never changes the category:
+    classification is host-first, and a label such as "MEGA" on an unknown host
+    must stay ``other`` rather than inventing a category.
+    """
+    del label
     parts = _split(url)
     if parts is None:
         return Category.OTHER

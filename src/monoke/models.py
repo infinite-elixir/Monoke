@@ -123,7 +123,7 @@ class PostDetail(ApiModel):
     added: int | None = None
     published: int | None = None
     attachments: list[Attachment] = Field(default_factory=list)
-    links: list[dict[str, Any]] = Field(default_factory=list)
+    links: list[dict[str, Any] | str] = Field(default_factory=list)
     tags: list[Tag] = Field(default_factory=list)
     prev: PostRef | None = None
     next: PostRef | None = None

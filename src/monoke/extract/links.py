@@ -67,7 +67,17 @@ def _hostname(url: str) -> str | None:
 
 
 def extract_links(post) -> list[LinkRow]:
-    """Return deduplicated links in first-seen order."""
+    """Return deduplicated links in first-seen order, capped at ``MAX_LINKS``."""
+    return extract_links_report(post)[0]
+
+
+def extract_links_report(post) -> tuple[list[LinkRow], bool]:
+    """Extract links and report whether the per-post cap was exceeded.
+
+    The boolean is true only when more than ``MAX_LINKS`` distinct links were
+    found, so callers can warn without falsely flagging a post with exactly
+    ``MAX_LINKS`` links.
+    """
     rows: dict[str, LinkRow] = {}
 
     def add(
@@ -89,9 +99,7 @@ def extract_links(post) -> list[LinkRow]:
                 existing.label = label
             return
 
-        category = category_hint or classify(url)
-        if category is Category.OTHER and category_hint is not None:
-            category = category_hint
+        category = category_hint if category_hint is not None else classify(url)
         rows[normalized] = LinkRow(
             url=url,
             normalized_url=normalized,
@@ -104,6 +112,7 @@ def extract_links(post) -> list[LinkRow]:
     if caption:
         soup = BeautifulSoup(caption, "lxml")
 
+        # 1. Anchor links: raw href plus the decoded, collapsed anchor text.
         for anchor in soup.find_all("a", href=True):
             href = str(anchor.get("href") or "").strip()
             if not href:
@@ -111,6 +120,13 @@ def extract_links(post) -> list[LinkRow]:
             label = _clean_label(anchor.get_text(" ", strip=True))
             add(href, label or _hostname(_resolve(href)))
 
+        # 2. Bare URLs in text nodes have no label.
+        for match in _BARE_URL.finditer(soup.get_text(" ")):
+            url = match.group(0).rstrip(_TRAILING)
+            if url and not url.lower().startswith("magnet:"):
+                add(url, None)
+
+        # 3. Caption images are links too; they carry an image hint.
         for image in soup.find_all("img", src=True):
             src = str(image.get("src") or "").strip()
             if not src:
@@ -121,12 +137,10 @@ def extract_links(post) -> list[LinkRow]:
                 category_hint=Category.IMAGE,
             )
 
-        for match in _BARE_URL.finditer(soup.get_text(" ")):
-            url = match.group(0).rstrip(_TRAILING)
-            if url and not url.lower().startswith("magnet:"):
-                add(url, None)
-
+    # 4. Merge the API's own links defensively; it is empty on every sampled post.
     api_links = getattr(post, "links", None) or []
+    if isinstance(api_links, dict):
+        api_links = [api_links]
     for entry in api_links:
         if isinstance(entry, str):
             add(entry, None, origin="api_links")
@@ -139,4 +153,5 @@ def extract_links(post) -> list[LinkRow]:
                     origin="api_links",
                 )
 
-    return list(rows.values())[:MAX_LINKS]
+    unique = list(rows.values())
+    return unique[:MAX_LINKS], len(unique) > MAX_LINKS
