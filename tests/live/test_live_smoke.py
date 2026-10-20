@@ -25,7 +25,9 @@ pytestmark = [
 async def test_live_profile_posts_and_post(tmp_path):
     ref = parse_url("https://cum.st/creators/patreon/274608")
 
-    async with CumstClient(Settings(data_dir=tmp_path), jitter=(0, 0)) as client:
+    async with CumstClient(
+        Settings(data_dir=tmp_path), jitter=(0, 0), min_interval=0
+    ) as client:
         profile = await client.profile(ref)
         assert profile.id == "274608"
         assert profile.service == "patreon"

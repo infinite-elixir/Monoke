@@ -12,6 +12,7 @@ from monoke.cumst.client import (
     ApiBlocked,
     ApiDecode,
     ApiNotFound,
+    ApiRateLimited,
     ApiServerError,
     ApiTimeout,
     CumstClient,
@@ -29,6 +30,7 @@ async def _no_sleep(_delay: float) -> None:
 def _client(settings: Settings, conn=None, **kwargs) -> CumstClient:
     kwargs.setdefault("jitter", (0, 0))
     kwargs.setdefault("sleep", _no_sleep)
+    kwargs.setdefault("min_interval", 0)
     return CumstClient(settings, conn, **kwargs)
 
 
@@ -120,6 +122,54 @@ async def test_500_exhausts_attempts(settings):
 
         assert route.call_count == 3
         assert excinfo.value.status == 500
+
+
+async def test_429_honors_retry_after(settings, fixture):
+    payload = fixture("posts_274608_empty.json")
+    sleeps: list[float] = []
+
+    async def record(delay: float) -> None:
+        sleeps.append(delay)
+
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(POSTS_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    429,
+                    headers={"retry-after": "7"},
+                    json={"error": "slow down"},
+                ),
+                httpx.Response(200, json=payload),
+            ]
+        )
+
+        async with CumstClient(
+            settings, jitter=(0, 0), sleep=record, min_interval=0
+        ) as client:
+            data, _, _ = await client.get_json(
+                "/patreon/user/274608/posts", {"o": 782}
+            )
+
+    assert route.call_count == 2
+    assert any(6.5 <= delay <= 7.5 for delay in sleeps)
+    assert data["total"] == 782
+
+
+async def test_repeated_429_stops_the_client(settings):
+    with respx.mock(assert_all_called=False) as router:
+        route = router.get(POSTS_URL).mock(
+            return_value=httpx.Response(
+                429, headers={"retry-after": "0"}, json={"error": "slow down"}
+            )
+        )
+
+        async with _client(settings) as client:
+            with pytest.raises(ApiServerError):
+                await client.get_json("/patreon/user/274608/posts", {"o": 0})
+            with pytest.raises(ApiRateLimited):
+                await client.get_json("/patreon/user/274608/posts", {"o": 0})
+
+        assert route.call_count == 6
 
 
 async def test_404_raises_immediately(settings):

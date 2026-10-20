@@ -15,7 +15,7 @@ from typing import Any
 
 from .config import Settings, get_settings
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Each migration is a tuple of individual statements so we can apply it inside one
 # transaction (executescript would commit implicitly).
@@ -141,7 +141,12 @@ _V1: tuple[str, ...] = (
     """,
 )
 
-MIGRATIONS: tuple[tuple[str, ...], ...] = (_V1,)
+_V2: tuple[str, ...] = (
+    "ALTER TABLE runs ADD COLUMN posts_done INTEGER NOT NULL DEFAULT 0",
+    "UPDATE runs SET posts_done = posts_new + posts_updated WHERE posts_done = 0",
+)
+
+MIGRATIONS: tuple[tuple[str, ...], ...] = (_V1, _V2)
 
 
 # --------------------------------------------------------------------------- #
@@ -417,6 +422,72 @@ def upsert_post(
     return int(row["id"])
 
 
+def save_post_bundle(
+    conn: sqlite3.Connection,
+    *,
+    creator_id: int,
+    service: str,
+    service_id: str,
+    title: str | None = None,
+    caption_html: str | None = None,
+    caption_text: str | None = None,
+    published: int | None = None,
+    added: int | None = None,
+    bookmarked: int | None = None,
+    prev_id: str | None = None,
+    next_id: str | None = None,
+    revisions_count: int = 0,
+    linked_count: int = 0,
+    raw_json: str | None = None,
+    fetched_at: str | None = None,
+    files: Sequence[dict[str, Any]] = (),
+    links: Sequence[dict[str, Any]] = (),
+    tags: Sequence[dict[str, Any]] = (),
+) -> tuple[int, bool]:
+    """Write a post and its files/links/tags in one transaction.
+
+    Returns ``(post_id, created)``. This is the unit of resumability: either the
+    whole bundle lands or none of it does.
+    """
+    with conn:
+        exists = conn.execute(
+            "SELECT 1 FROM posts WHERE creator_id = ? AND service_id = ?",
+            (creator_id, service_id),
+        ).fetchone()
+        post_id = upsert_post(
+            conn,
+            creator_id=creator_id,
+            service=service,
+            service_id=service_id,
+            title=title,
+            caption_html=caption_html,
+            caption_text=caption_text,
+            published=published,
+            added=added,
+            bookmarked=bookmarked,
+            prev_id=prev_id,
+            next_id=next_id,
+            revisions_count=revisions_count,
+            linked_count=linked_count,
+            raw_json=raw_json,
+            fetched_at=fetched_at,
+            missing_upstream=0,
+        )
+        _write_files(conn, post_id, files)
+        _write_links(conn, post_id, links)
+        _write_tags(conn, post_id, tags)
+    return post_id, exists is None
+
+
+def post_status_map(conn: sqlite3.Connection, creator_id: int) -> dict[str, str | None]:
+    """Map service post id -> fetched_at for resume decisions."""
+    rows = conn.execute(
+        "SELECT service_id, fetched_at FROM posts WHERE creator_id = ?",
+        (creator_id,),
+    ).fetchall()
+    return {row["service_id"]: row["fetched_at"] for row in rows}
+
+
 def get_post(conn: sqlite3.Connection, post_id: int) -> dict[str, Any] | None:
     return _dict(conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone())
 
@@ -538,6 +609,13 @@ def replace_files(
     conn: sqlite3.Connection, post_id: int, rows: Sequence[dict[str, Any]]
 ) -> int:
     """Replace a post's files, deduplicating by sha256. Returns rows written."""
+    with conn:
+        return _write_files(conn, post_id, rows)
+
+
+def _write_files(
+    conn: sqlite3.Connection, post_id: int, rows: Sequence[dict[str, Any]]
+) -> int:
     seen: set[str] = set()
     values: list[tuple[Any, ...]] = []
     for row in rows:
@@ -568,18 +646,17 @@ def replace_files(
             )
         )
 
-    with conn:
-        conn.execute("DELETE FROM files WHERE post_id = ?", (post_id,))
-        if values:
-            conn.executemany(
-                """
-                INSERT INTO files (
-                  post_id, position, sha256, kind, mime_type, bytes, width, height,
-                  duration_ms, original_filename, storage_key, variants_json, url, thumb_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                values,
-            )
+    conn.execute("DELETE FROM files WHERE post_id = ?", (post_id,))
+    if values:
+        conn.executemany(
+            """
+            INSERT INTO files (
+              post_id, position, sha256, kind, mime_type, bytes, width, height,
+              duration_ms, original_filename, storage_key, variants_json, url, thumb_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            values,
+        )
     return len(values)
 
 
@@ -595,6 +672,13 @@ def replace_links(
     conn: sqlite3.Connection, post_id: int, rows: Sequence[dict[str, Any]]
 ) -> int:
     """Replace a post's links, deduplicating by normalized_url."""
+    with conn:
+        return _write_links(conn, post_id, rows)
+
+
+def _write_links(
+    conn: sqlite3.Connection, post_id: int, rows: Sequence[dict[str, Any]]
+) -> int:
     seen: set[str] = set()
     values: list[tuple[Any, ...]] = []
     for row in rows:
@@ -614,17 +698,16 @@ def replace_links(
             )
         )
 
-    with conn:
-        conn.execute("DELETE FROM links WHERE post_id = ?", (post_id,))
-        if values:
-            conn.executemany(
-                """
-                INSERT INTO links (
-                  post_id, url, normalized_url, label, category, origin, resolved_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                values,
-            )
+    conn.execute("DELETE FROM links WHERE post_id = ?", (post_id,))
+    if values:
+        conn.executemany(
+            """
+            INSERT INTO links (
+              post_id, url, normalized_url, label, category, origin, resolved_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            values,
+        )
     return len(values)
 
 
@@ -638,6 +721,13 @@ def list_links(conn: sqlite3.Connection, post_id: int) -> list[dict[str, Any]]:
 def replace_tags(
     conn: sqlite3.Connection, post_id: int, rows: Sequence[dict[str, Any]]
 ) -> int:
+    with conn:
+        return _write_tags(conn, post_id, rows)
+
+
+def _write_tags(
+    conn: sqlite3.Connection, post_id: int, rows: Sequence[dict[str, Any]]
+) -> int:
     seen: set[str] = set()
     values: list[tuple[Any, ...]] = []
     for row in rows:
@@ -647,12 +737,11 @@ def replace_tags(
         seen.add(slug)
         values.append((post_id, slug, row.get("label")))
 
-    with conn:
-        conn.execute("DELETE FROM tags WHERE post_id = ?", (post_id,))
-        if values:
-            conn.executemany(
-                "INSERT INTO tags (post_id, slug, label) VALUES (?, ?, ?)", values
-            )
+    conn.execute("DELETE FROM tags WHERE post_id = ?", (post_id,))
+    if values:
+        conn.executemany(
+            "INSERT INTO tags (post_id, slug, label) VALUES (?, ?, ?)", values
+        )
     return len(values)
 
 
@@ -666,6 +755,19 @@ def list_tags(conn: sqlite3.Connection, post_id: int) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 # runs
 # --------------------------------------------------------------------------- #
+
+
+def cancel_stale_runs(conn: sqlite3.Connection, creator_id: int) -> int:
+    """A run left ``running`` by a killed process is marked interrupted."""
+    cur = conn.execute(
+        """
+        UPDATE runs SET status = 'cancelled', finished_at = ?,
+          error = COALESCE(error, 'interrupted')
+        WHERE creator_id = ? AND status = 'running'
+        """,
+        (now_iso(), creator_id),
+    )
+    return cur.rowcount
 
 
 def create_run(conn: sqlite3.Connection, creator_id: int, mode: str) -> int:
@@ -683,6 +785,7 @@ def finish_run(
     status: str,
     pages: int = 0,
     posts_seen: int = 0,
+    posts_done: int = 0,
     posts_new: int = 0,
     posts_updated: int = 0,
     links_found: int = 0,
@@ -692,8 +795,8 @@ def finish_run(
     conn.execute(
         """
         UPDATE runs SET
-          status = ?, finished_at = ?, pages = ?, posts_seen = ?, posts_new = ?,
-          posts_updated = ?, links_found = ?, files_count = ?, error = ?
+          status = ?, finished_at = ?, pages = ?, posts_seen = ?, posts_done = ?,
+          posts_new = ?, posts_updated = ?, links_found = ?, files_count = ?, error = ?
         WHERE id = ?
         """,
         (
@@ -701,6 +804,7 @@ def finish_run(
             now_iso(),
             pages,
             posts_seen,
+            posts_done,
             posts_new,
             posts_updated,
             links_found,

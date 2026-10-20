@@ -80,7 +80,9 @@ of every post and every link inside it. Paste a URL, crawl, browse, re-sync.
     are stable.
 - Caching: `cache-control: public, max-age=60, stale-while-revalidate=300` — much fresher than
   kemono's 12 h. Behind DDOS-Guard, `robots.txt` is `Allow: /`.
-- No rate limiting observed: 10 rapid requests, all `200`, ~1 s each.
+- Short bursts (~10 rapid requests) succeed, but sustained ~13 req/s trips DDOS-Guard:
+  `429` with `retry-after: 60` (seen on the first full crawl). Monoke paces to ~4 req/s,
+  honors `Retry-After` with a global cooldown, and stops after six consecutive 429s.
 - Services seen in the UI: `patreon`, `fansly`, `onlyfans` (nav filters). Treat the slug as
   open, with a known list for validation hints.
 - Post URLs on the site: `https://cum.st/creators/{service}/{creator_id}/post/{post_id}`.

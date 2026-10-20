@@ -16,7 +16,7 @@ REF = parse_url("https://cum.st/creators/patreon/274608")
 
 
 def _client(settings):
-    return CumstClient(settings, jitter=(0, 0), sleep=_no_sleep)
+    return CumstClient(settings, jitter=(0, 0), sleep=_no_sleep, min_interval=0)
 
 
 async def _no_sleep(_delay: float) -> None:

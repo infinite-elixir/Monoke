@@ -13,6 +13,8 @@ import json
 import logging
 import random
 import time
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Awaitable, Callable, Mapping
 from urllib.parse import urlencode
 
@@ -27,8 +29,26 @@ log = logging.getLogger(__name__)
 
 BACKOFF_SECONDS = (0.5, 1.5, 4.5)
 MAX_ATTEMPTS = 3
+MAX_CONSECUTIVE_429 = 6
+MAX_COOLDOWN_SECONDS = 300.0
 SNIPPET_LIMIT = 200
 ALLOWED_SORTS = frozenset({"recent", "oldest", "top"})
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - datetime.now(UTC)).total_seconds())
 
 
 class ApiError(Exception):
@@ -60,6 +80,10 @@ class ApiBlocked(ApiError):
     """An HTML/JS challenge (DDOS-Guard) instead of JSON."""
 
 
+class ApiRateLimited(ApiServerError):
+    """cum.st kept returning 429 after cooldowns; stop instead of hammering."""
+
+
 class CumstClient:
     def __init__(
         self,
@@ -71,13 +95,24 @@ class CumstClient:
         sleep: Callable[[float], Awaitable[None]] | None = None,
         jitter: tuple[float, float] = (0.1, 0.3),
         backoff: tuple[float, ...] = BACKOFF_SECONDS,
+        fresh: bool = False,
+        min_interval: float = 0.25,
     ) -> None:
         self.settings = settings or get_settings()
         self.conn = conn
+        self.fresh = fresh
         self._sleep = sleep or asyncio.sleep
         self._jitter = jitter
         self._backoff = backoff
         self._semaphore = asyncio.Semaphore(concurrency or self.settings.concurrency)
+        # Global pacing: 4 requests/second by default, independent of the
+        # concurrency cap. 429s widen the interval and pause every worker.
+        self._min_interval = min_interval
+        self._next_slot = 0.0
+        self._slot_lock = asyncio.Lock()
+        self._cooldown_until = 0.0
+        self._cooldown_lock = asyncio.Lock()
+        self._consecutive_429 = 0
         self._client = httpx.AsyncClient(
             base_url=self.settings.api_base.rstrip("/"),
             headers={
@@ -120,15 +155,17 @@ class CumstClient:
         path: str,
         params: Mapping[str, Any] | None = None,
         *,
-        fresh: bool = False,
+        fresh: bool | None = None,
     ) -> tuple[Any, str, bool]:
         """Fetch JSON, using the SQLite cache unless ``fresh`` is true.
 
+        ``fresh=None`` falls back to the client-wide setting (``--no-cache``).
         Returns ``(data, fetched_at, from_cache)``.
         """
+        use_fresh = self.fresh if fresh is None else fresh
         url = self._build_url(path, params)
 
-        if not fresh and self.conn is not None:
+        if not use_fresh and self.conn is not None:
             cached = db.cache_get(self.conn, url)
             if cached is not None:
                 try:
@@ -157,12 +194,38 @@ class CumstClient:
 
         return data, fetched_at, False
 
+    async def _wait_for_turn(self) -> None:
+        """Cooldown, then jitter, then a global minimum spacing between calls."""
+        loop = asyncio.get_running_loop()
+
+        async with self._cooldown_lock:
+            remaining = self._cooldown_until - loop.time()
+        if remaining > 0:
+            await self._sleep(remaining)
+
+        await self._sleep(random.uniform(*self._jitter))
+
+        if self._min_interval > 0:
+            async with self._slot_lock:
+                now = loop.time()
+                slot = max(now, self._next_slot)
+                self._next_slot = slot + self._min_interval
+                wait = slot - now
+            if wait > 0:
+                await self._sleep(wait)
+
+    async def _cool_down(self, seconds: float) -> None:
+        loop = asyncio.get_running_loop()
+        async with self._cooldown_lock:
+            self._cooldown_until = max(self._cooldown_until, loop.time() + seconds)
+
     async def _request(self, url: str) -> str:
         last_error: ApiError | None = None
 
         for attempt in range(1, MAX_ATTEMPTS + 1):
-            await self._sleep(random.uniform(*self._jitter))
+            await self._wait_for_turn()
 
+            cooled_down = False
             started = time.perf_counter()
             try:
                 async with self._semaphore:
@@ -191,13 +254,52 @@ class CumstClient:
                         snippet=response.text,
                     )
 
-                if status == 429 or 500 <= status < 600:
+                if status == 429:
+                    self._consecutive_429 += 1
+                    if self._consecutive_429 >= MAX_CONSECUTIVE_429:
+                        raise ApiRateLimited(
+                            "cum.st kept returning 429 even after waiting; "
+                            "stopping so the site is not hammered. Try again later.",
+                            status=status,
+                            snippet=response.text,
+                        )
+
+                    delay = _retry_after_seconds(response.headers.get("retry-after"))
+                    if delay is None:
+                        delay = max(
+                            5.0,
+                            self._backoff[min(attempt - 1, len(self._backoff) - 1)],
+                        )
+                    delay = min(delay, MAX_COOLDOWN_SECONDS)
+                    if self._min_interval > 0:
+                        self._min_interval = min(2.0, self._min_interval * 1.5)
+
+                    last_error = ApiServerError(
+                        f"cum.st returned HTTP 429 for {url}",
+                        status=status,
+                        snippet=response.text,
+                    )
+                    cooled_down = True
+                    log.warning(
+                        "GET %s -> 429 in %.0fms; cooling down %.0fs",
+                        url,
+                        elapsed_ms,
+                        delay,
+                    )
+                    await self._cool_down(delay)
+                elif 500 <= status < 600:
                     last_error = ApiServerError(
                         f"cum.st returned HTTP {status} for {url}",
                         status=status,
                         snippet=response.text,
                     )
-                    log.warning("GET %s -> %d in %.0fms (attempt %d)", url, status, elapsed_ms, attempt)
+                    log.warning(
+                        "GET %s -> %d in %.0fms (attempt %d)",
+                        url,
+                        status,
+                        elapsed_ms,
+                        attempt,
+                    )
                 elif status >= 400:
                     raise ApiError(
                         f"cum.st returned HTTP {status} for {url}",
@@ -211,10 +313,11 @@ class CumstClient:
                         snippet=response.text,
                     )
                 else:
+                    self._consecutive_429 = 0
                     log.info("GET %s -> %d in %.0fms", url, status, elapsed_ms)
                     return response.text
 
-            if attempt < MAX_ATTEMPTS:
+            if attempt < MAX_ATTEMPTS and not cooled_down:
                 delay = self._backoff[min(attempt - 1, len(self._backoff) - 1)]
                 await self._sleep(delay * random.uniform(0.8, 1.2))
 
