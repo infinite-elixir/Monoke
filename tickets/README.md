@@ -20,7 +20,7 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T2.3 | [Run records, progress events, CLI](T2.3-runs-and-cli.md) | Crawler | M | T2.1 | done |
 | T3.1 | [Link extraction from captions](T3.1-link-extraction.md) | Extraction | M | T0.2, T1.3 | done |
 | T3.2 | [Normalization and classification](T3.2-classification.md) | Extraction | M | T3.1 | done |
-| T3.3 | [Shortener resolution](T3.3-shorteners.md) | Extraction | S | T3.2, T1.2 | todo |
+| T3.3 | [Shortener resolution](T3.3-shorteners.md) | Extraction | S | T3.2, T1.2 | done |
 | T3.4 | [Attachments, media URLs, tags](T3.4-files-and-flags.md) | Extraction | M | T3.1 | done |
 | T3.5 | [CSV and JSON exporters](T3.5-exports.md) | Extraction | S | T3.2 | todo |
 | T4.1 | [App shell, templates, static assets](T4.1-shell.md) | UI | S | T0.1 | todo |

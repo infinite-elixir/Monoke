@@ -30,6 +30,21 @@ def test_image_attachment(fixture):
     assert file["url"] == media_url(sha, "original.jpg")
     assert file["thumb_url"] == f"https://img.cum.st/thumbnail/{sha}/preview.webp"
     assert file["variants"][0]["name"] == "original.jpg"
+    assert '"name":"original.jpg"' in file["variants_json"]
+
+
+def test_ext_for_falls_back_to_kind():
+    expected = {
+        "gif": "gif",
+        "video": "mp4",
+        "audio": "m4a",
+        "file": "bin",
+        "image": "jpg",
+    }
+    for kind, ext in expected.items():
+        attachment = Attachment(sha256="0" * 64, kind=kind)
+        assert ext_for(attachment) == ext
+    assert ext_for(Attachment(sha256="0" * 64, kind="image", original_filename="x.JPEG")) == "jpeg"
 
 
 def test_gif_attachment_is_alive(fixture):
@@ -103,6 +118,13 @@ def test_creator_images():
     )
     assert images["header_url"].endswith("/header.webp?v=1792482836")
     assert images["header_full_url"].endswith("/header-full.webp?v=1792482836")
+
+
+def test_creator_images_without_updated_have_no_version():
+    profile = CreatorProfile(id="1", service="patreon", name="x")
+    images = creator_images(profile, img_base="https://img.cum.st")
+    assert "?" not in images["avatar_url"]
+    assert images["header_url"].endswith("/header.webp")
 
 
 def test_tags(fixture):

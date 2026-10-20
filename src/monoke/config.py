@@ -31,6 +31,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     data_dir: Path = Path("data")
@@ -47,6 +54,12 @@ class Settings:
     request_timeout: float = 20.0
     user_agent: str = "Monoke/0.1 (local private archive)"
     cache_ttl: int = 60
+
+    resolve_shorteners: bool = True
+    resolve_budget: int = 100
+    resolve_concurrency: int = 2
+    resolve_timeout: float = 8.0
+    resolution_ttl_days: int = 30
 
     @property
     def db_path(self) -> Path:
@@ -71,4 +84,9 @@ def get_settings() -> Settings:
         request_timeout=float(_env("MONOKE_TIMEOUT", "20")),
         user_agent=_env("MONOKE_USER_AGENT", "Monoke/0.1 (local private archive)"),
         cache_ttl=_env_int("MONOKE_CACHE_TTL", 60),
+        resolve_shorteners=_env_bool("MONOKE_RESOLVE", True),
+        resolve_budget=_env_int("MONOKE_RESOLVE_BUDGET", 100),
+        resolve_concurrency=max(1, _env_int("MONOKE_RESOLVE_CONCURRENCY", 2)),
+        resolve_timeout=float(_env("MONOKE_RESOLVE_TIMEOUT", "8")),
+        resolution_ttl_days=max(1, _env_int("MONOKE_RESOLVE_TTL_DAYS", 30)),
     )

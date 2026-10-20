@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -67,6 +68,7 @@ def extract_files(post: PostDetail) -> list[dict[str, Any]]:
                 "original_filename": attachment.original_filename,
                 "storage_key": attachment.storage_key,
                 "variants": variants,
+                "variants_json": json.dumps(variants, separators=(",", ":")),
                 "url": original_url(attachment),
                 "thumb_url": thumb_url(attachment.sha256),
             }

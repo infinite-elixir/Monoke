@@ -19,6 +19,7 @@ from ..cumst.client import ApiBlocked, ApiRateLimited, CumstClient
 from ..cumst.media import creator_images
 from ..cumst.urls import CumstRef
 from ..extract.post import extract_post
+from ..extract.shortener import ShortenerResolver
 from .events import bus
 
 log = logging.getLogger(__name__)
@@ -90,8 +91,13 @@ async def crawl_full(
     full: bool = False,
     limit: int | None = None,
     fresh: bool = False,
+    resolve: bool | None = None,
+    resolver: ShortenerResolver | None = None,
+    no_resolve: bool = False,
 ) -> RunResult:
     """Crawl one creator from URL ref to a complete archive."""
+    if no_resolve:
+        resolve = False
     settings = settings or get_settings()
     started = time.perf_counter()
     owns_conn = conn is None
@@ -101,6 +107,10 @@ async def crawl_full(
     client = client or CumstClient(
         settings, conn, concurrency=concurrency, fresh=fresh
     )
+    resolver_created = False
+    if resolver is None and (settings.resolve_shorteners if resolve is None else resolve):
+        resolver = ShortenerResolver(settings, conn)
+        resolver_created = True
     result = RunResult()
     run_id: int | None = None
     creator_id: int | None = None
@@ -219,7 +229,13 @@ async def crawl_full(
             progress=progress,
             result=result,
             run_id=run_id,
+            resolver=resolver,
         )
+
+        if resolver is not None and resolver.deferred:
+            result.warnings.append(
+                f"shortener budget reached; {resolver.deferred} link(s) deferred"
+            )
 
         with conn:
             db.upsert_creator(
@@ -279,6 +295,8 @@ async def crawl_full(
                     "result": result.to_dict(),
                 },
             )
+        if resolver_created and resolver is not None:
+            await resolver.aclose()
         if owns_client:
             await client.aclose()
         if owns_conn:
@@ -298,6 +316,7 @@ async def _fan_out(
     progress: ProgressCallback | None,
     result: RunResult,
     run_id: int,
+    resolver: ShortenerResolver | None = None,
 ) -> None:
     if not pending:
         return
@@ -322,6 +341,8 @@ async def _fan_out(
             try:
                 detail = await client.post(ref, post_id)
                 extracted = extract_post(detail)
+                if resolver is not None and extracted.links:
+                    await resolver.resolve_rows(extracted.links)
                 _, created = db.save_post_bundle(
                     conn,
                     creator_id=creator_id,
@@ -456,6 +477,7 @@ def run_sync(args: argparse.Namespace) -> int:
                 full=bool(args.full or args.deep),
                 limit=args.limit,
                 fresh=bool(args.no_cache),
+                resolve=False if args.no_resolve else None,
             )
         )
     except KeyboardInterrupt:

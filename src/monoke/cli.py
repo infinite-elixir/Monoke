@@ -29,6 +29,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--limit", type=int, default=None, help="stop after N post details")
     sync.add_argument("--concurrency", type=int, default=None, help="parallel detail requests")
     sync.add_argument("--no-cache", action="store_true", help="bypass the response cache")
+    sync.add_argument(
+        "--no-resolve",
+        action="store_true",
+        help="skip third-party shortener resolution (fast, offline crawl)",
+    )
     sync.add_argument("--json", action="store_true", help="print the run result as JSON")
 
     db = sub.add_parser("db", help="database utilities")

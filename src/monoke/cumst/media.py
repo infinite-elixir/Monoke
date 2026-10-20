@@ -69,7 +69,7 @@ def creator_images(
     profile: CreatorProfile, *, img_base: str | None = None
 ) -> dict[str, str | None]:
     base = (img_base or get_settings().img_base).rstrip("/")
-    suffix = f"?v={profile.updated}" if profile.updated else ""
+    suffix = f"?v={profile.updated}" if profile.updated is not None else ""
     root = f"{base}/creator/{profile.service}/{profile.id}"
     return {
         "avatar_url": f"{root}/avatar.webp{suffix}",
