@@ -10,7 +10,7 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | ID | Ticket | Epic | Size | Depends on | Status |
 |---|---|---|---|---|---|
 | T0.1 | [Project scaffold and configuration](T0.1-scaffold.md) | Foundation | S | — | done |
-| T0.2 | [SQLite schema and repositories](T0.2-schema-and-repositories.md) | Foundation | M | T0.1 | todo |
+| T0.2 | [SQLite schema and repositories](T0.2-schema-and-repositories.md) | Foundation | M | T0.1 | done |
 | T0.3 | [Test harness and fixtures](T0.3-test-harness.md) | Foundation | S | T0.1 | todo |
 | T1.1 | [cum.st URL parser and service registry](T1.1-url-parser.md) | Client | S | T0.1 | todo |
 | T1.2 | [HTTP client: cache, retry, backoff](T1.2-http-client.md) | Client | M | T0.1, T0.2 | todo |
