@@ -6,7 +6,13 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..cumst.media import ext_for, media_url, original_url, thumb_url
+from ..cumst.media import (
+    classify_media_kind,
+    ext_for,
+    media_url,
+    original_url,
+    thumb_url,
+)
 from ..models import Attachment, PostDetail
 from .links import MAX_LINKS, extract_links_report
 from .sanitize import caption_text, sanitize_html
@@ -59,7 +65,14 @@ def extract_files(post: PostDetail) -> list[dict[str, Any]]:
             {
                 "position": attachment.position,
                 "sha256": attachment.sha256,
-                "kind": attachment.kind,
+                "kind": classify_media_kind(
+                    raw_kind=attachment.kind,
+                    mime_type=attachment.mime_type,
+                    original_filename=attachment.original_filename,
+                    variants=variants,
+                    duration_ms=attachment.duration_ms,
+                ),
+                "raw_kind": attachment.kind,
                 "mime_type": attachment.mime_type,
                 "bytes": attachment.bytes,
                 "width": attachment.width,

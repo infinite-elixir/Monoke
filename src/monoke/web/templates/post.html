@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% from "partials/bookmark_button.html" import bookmark_button %}
+
+{% set creator_name = creator.display_name or creator.name or (creator.service ~ "/" ~ creator.service_id) %}
+{% set post_title = post.title or "(untitled post)" %}
+
+{% block title %}{{ post_title }} · {{ creator_name }} · Monoke{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumb">
+    <a href="{{ creator_url }}">{{ creator_name }}</a>
+    <span aria-hidden="true">/</span>
+    <span aria-current="page">{{ post_title }}</span>
+  </nav>
+
+  <article class="post-page">
+    <header class="post-header">
+      <p class="eyebrow">{{ creator.service }} · post {{ post.service_id }}</p>
+      <h1>{{ post_title }}</h1>
+
+      <p class="post-meta">
+        <time datetime="{{ post.published|short_date }}">{{ post.published|short_date }}</time>
+        {% if post.added and post.published and post.added != post.published %}
+          <span class="badge badge-dead">edited</span>
+        {% endif %}
+        <span class="muted">·</span>
+        <span class="muted">{{ link_count }} links</span>
+        <span class="muted">·</span>
+        <span class="muted">{{ files|length }} files</span>
+      </p>
+
+      {% if tags %}
+        <ul class="tag-chips" aria-label="Tags">
+          {% for tag in tags %}
+            <li><a class="tag-chip" href="{{ filters.url_for(creator.id, tag=tag.slug) }}">{{ tag.label or tag.slug }}</a></li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      <div class="post-actions">
+        {{ bookmark_button(
+          "/c/" ~ creator.id ~ "/p/" ~ post.service_id ~ "/bookmark",
+          is_bookmarked,
+          return_url,
+          "post",
+          post_title
+        ) }}
+        <a class="button button-small" href="{{ original_url }}" target="_blank" rel="noopener noreferrer nofollow">Open original</a>
+        {% if prev_url %}
+          <a class="button button-small" href="{{ prev_url }}" rel="prev">Previous</a>
+        {% else %}
+          <span class="button button-small" aria-disabled="true">Previous</span>
+        {% endif %}
+        {% if next_url %}
+          <a class="button button-small" href="{{ next_url }}" rel="next">Next</a>
+        {% else %}
+          <span class="button button-small" aria-disabled="true">Next</span>
+        {% endif %}
+      </div>
+    </header>
+
+    <div class="post-columns">
+      <section class="caption-column" aria-labelledby="caption-title">
+        <h2 id="caption-title">Caption</h2>
+        {% if caption_html %}
+          <div class="caption">{{ caption_html|safe }}</div>
+        {% else %}
+          <p class="muted">No caption.</p>
+        {% endif %}
+      </section>
+
+      <section class="links-column" aria-labelledby="links-title">
+        <div class="section-heading">
+          <h2 id="links-title">Links</h2>
+          {% if links %}
+            <button class="button button-small" type="button" data-copy-all="#link-groups">
+              Copy all links
+            </button>
+          {% endif %}
+        </div>
+
+        {% if groups %}
+          <div id="link-groups">
+            {% for group in groups %}
+              <section class="link-group">
+                <h3>{{ m.badge(group.key, group.label) }} <span class="muted">{{ group.links|length }}</span></h3>
+                <ul class="link-list">
+                  {% for link in group.links %}
+                    {% set value = link.resolved_url or link.url %}
+                    <li class="link-item" data-copy-value="{{ value }}">
+                      <div class="link-main">
+                        <span class="link-label">{{ link.label or "—" }}</span>
+                        <code class="link-display" title="{{ value }}">{{ value|display_url }}</code>
+                        {% if link.category == "shortener" and not link.resolved_url %}
+                          <span class="link-hint">not resolved</span>
+                        {% endif %}
+                      </div>
+                      <div class="link-actions">
+                        <button class="button button-small" type="button" data-copy="{{ value }}">Copy</button>
+                        <a class="button button-small" href="{{ value }}" target="_blank" rel="noopener noreferrer nofollow">Open</a>
+                      </div>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </section>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">No links in this post.</p>
+        {% endif %}
+      </section>
+    </div>
+
+    <section class="attachments-section" aria-labelledby="attachments-title">
+      <div class="section-heading">
+        <h2 id="attachments-title">Attachments</h2>
+        <span class="muted">Edge media loads only when you press Load.</span>
+      </div>
+
+      {% if files %}
+        <div class="attachment-list">
+          {% for file in files %}
+            {% set dims = (file.width ~ "×" ~ file.height) if file.width and file.height else "" %}
+            <article
+              class="attachment-row"
+              data-attachment
+              data-kind="{{ file.kind }}"
+              data-full-src="{{ file.url }}"
+              {% if file.is_video and file.variants %}data-variants='{{ file.variants|tojson }}'{% endif %}
+            >
+              <div class="attachment-preview">
+                {% if file.thumb_url %}
+                  <img class="thumb attachment-thumb" src="{{ file.thumb_url }}" alt="" loading="lazy" decoding="async">
+                {% else %}
+                  <span class="thumb-placeholder">{{ (file.filename or "?")[0]|upper }}</span>
+                {% endif %}
+              </div>
+
+              <div class="attachment-body">
+                <h3 class="attachment-name">{{ file.filename }}</h3>
+                <p class="attachment-meta">
+                  <span class="kind-badge">{{ file.kind }}</span>
+                  {% if file.mime_type %}<span>{{ file.mime_type }}</span>{% endif %}
+                  {% if file.bytes %}<span title="{{ file.bytes }} bytes">{{ file.bytes|human_bytes }}</span>{% endif %}
+                  {% if dims %}<span>{{ dims }}</span>{% endif %}
+                  {% if file.duration_ms and (file.is_video or file.is_audio) %}<span>{{ file.duration_ms|human_duration }}</span>{% endif %}
+                </p>
+
+                <div class="attachment-actions">
+                  <a class="button button-small" href="{{ file.url }}" target="_blank" rel="noopener noreferrer nofollow">Open</a>
+                  <button class="button button-small" type="button" data-copy="{{ file.url }}">Copy link</button>
+                  <button class="button button-small button-primary" type="button" data-load-media>Load</button>
+                  {% if file.kind in ("image", "gif", "video") %}
+                    {{ bookmark_button(
+                      "/c/" ~ creator.id ~ "/media/" ~ file.sha256 ~ "/bookmark",
+                      file.is_bookmarked,
+                      return_url,
+                      "image" if file.kind in ("image", "gif") else "video",
+                      file.filename
+                    ) }}
+                  {% endif %}
+                </div>
+
+                {% if file.is_video %}
+                  <div class="media-slot">
+                    <video controls preload="none" playsinline hidden data-media-video></video>
+                    {% if file.variants|length > 1 %}
+                      <label class="variant-label">
+                        Variant
+                        <select data-variant-select>
+                          {% for variant in file.variants %}
+                            <option value="{{ variant.url }}">{{ variant.name }}</option>
+                          {% endfor %}
+                        </select>
+                      </label>
+                    {% endif %}
+                  </div>
+                {% elif file.is_audio %}
+                  <div class="media-slot">
+                    <audio controls preload="none" hidden data-media-audio></audio>
+                  </div>
+                {% elif file.is_image %}
+                  <div class="media-slot">
+                    <img class="thumb attachment-media" alt="" hidden data-media-image>
+                  </div>
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="no-attachments">no attachments</p>
+      {% endif %}
+    </section>
+
+    <nav class="post-footer-nav" aria-label="Post navigation">
+      {% if prev_url %}
+        <a class="button" href="{{ prev_url }}" rel="prev">← Previous post</a>
+      {% else %}
+        <span class="button" aria-disabled="true">← Previous post</span>
+      {% endif %}
+      <a class="button button-quiet" href="{{ creator_url }}">Back to {{ creator_name }}</a>
+      {% if next_url %}
+        <a class="button" href="{{ next_url }}" rel="next">Next post →</a>
+      {% else %}
+        <span class="button" aria-disabled="true">Next post →</span>
+      {% endif %}
+    </nav>
+  </article>
+{% endblock %}

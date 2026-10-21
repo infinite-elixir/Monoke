@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from monoke.cumst.media import (
+    classify_media_kind,
     creator_images,
     edge_host,
     ext_for,
@@ -50,7 +53,11 @@ def test_ext_for_falls_back_to_kind():
 def test_gif_attachment_is_alive(fixture):
     files = extract_files(detail(fixture, "post_151983862.json"))
     assert len(files) == 1
+    # Upstream calls it an image even though the payload is a GIF. Without a
+    # gif raw kind we do not promote it, so reclassifying an archive is a no-op
+    # for real GIFs (T7.1 acceptance).
     assert files[0]["kind"] == "image"
+    assert files[0]["raw_kind"] == "image"
     assert files[0]["bytes"] == 14432
     assert files[0]["url"].endswith("/original.gif")
     assert files[0]["thumb_url"].startswith("https://img.cum.st/thumbnail/")
@@ -172,3 +179,88 @@ def test_extract_post_handles_empty_payload(fixture):
     assert extracted.files == []
     assert extracted.links == []
     assert extracted.caption_text == ""
+
+
+# --------------------------------------------------------------------------- #
+# T7.1 - normalized media kinds
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("signals", "expected"),
+    [
+        # A real animated GIF.
+        (
+            dict(
+                raw_kind="gif",
+                mime_type="image/gif",
+                original_filename="mood.gif",
+                variants=[{"name": "original.gif"}],
+            ),
+            "gif",
+        ),
+        # Upstream calls these gifs, but every byte is an MP4.
+        (
+            dict(
+                raw_kind="gif",
+                mime_type="image/gif",
+                original_filename="clip.mp4",
+                variants=[{"name": "original.mp4"}],
+                duration_ms=12_000,
+            ),
+            "video",
+        ),
+        (
+            dict(
+                raw_kind="gif",
+                mime_type="image/gif",
+                original_filename=None,
+                variants=[{"name": "original.mp4"}],
+                duration_ms=9_000,
+            ),
+            "video",
+        ),
+        # An "image" whose payload is a video.
+        (
+            dict(
+                raw_kind="image",
+                mime_type="image/png",
+                original_filename="clip.mp4",
+                variants=[{"name": "original.mp4"}],
+            ),
+            "video",
+        ),
+        (
+            dict(raw_kind="video", mime_type="video/mp4", duration_ms=5_000),
+            "video",
+        ),
+        (
+            dict(raw_kind="audio", mime_type="audio/mp4", original_filename="track.m4a"),
+            "audio",
+        ),
+        (
+            dict(raw_kind="file", mime_type="application/pdf", original_filename="x.pdf"),
+            "file",
+        ),
+        (dict(), "file"),
+    ],
+)
+def test_classify_media_kind_precedence(signals, expected):
+    assert classify_media_kind(**signals) == expected
+
+
+def test_mp4_backed_gif_is_extracted_as_video():
+    attachment = Attachment(
+        sha256="ab" * 32,
+        kind="gif",
+        mime_type="image/gif",
+        original_filename="clip.mp4",
+        duration_ms=12_000,
+        variants=[Variant(name="original.mp4", bytes=1000)],
+    )
+    [row] = extract_files(PostDetail(id="1", service="onlyfans", attachments=[attachment]))
+
+    assert row["kind"] == "video"
+    assert row["raw_kind"] == "gif"
+    assert row["url"].endswith("/original.mp4")
+

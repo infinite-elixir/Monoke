@@ -1,0 +1,30 @@
+{% if pager.pages > 1 %}
+  <nav class="paginator" aria-label="Pagination">
+    {% if pager.prev_url %}
+      <a class="button button-small" href="{{ pager.prev_url }}" rel="prev">Previous</a>
+    {% else %}
+      <span class="button button-small" aria-disabled="true">Previous</span>
+    {% endif %}
+
+    <span class="page-numbers">
+      {% for item in pager.links %}
+        {% if item is none %}
+          <span class="page-gap" aria-hidden="true">…</span>
+        {% elif item.current %}
+          <span class="page-number current" aria-current="page">{{ item.n }}</span>
+        {% else %}
+          <a class="page-number" href="{{ item.url }}">{{ item.n }}</a>
+        {% endif %}
+      {% endfor %}
+    </span>
+
+    {% if pager.next_url %}
+      <a class="button button-small" href="{{ pager.next_url }}" rel="next">Next</a>
+    {% else %}
+      <span class="button button-small" aria-disabled="true">Next</span>
+    {% endif %}
+  </nav>
+  <p class="paginator-status">{{ pager.total }} {{ pager.noun or "posts" }} · page {{ pager.page }} of {{ pager.pages }}</p>
+{% elif pager.total %}
+  <p class="paginator-status">{{ pager.total }} {{ pager.noun or "posts" }}</p>
+{% endif %}

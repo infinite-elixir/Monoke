@@ -61,9 +61,17 @@ class Settings:
     resolve_timeout: float = 8.0
     resolution_ttl_days: int = 30
 
+    debug: bool = False
+    debug_log_max_bytes: int = 2 * 1024 * 1024
+    debug_log_backups: int = 3
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / "monoke.db"
+
+    @property
+    def debug_log_path(self) -> Path:
+        return self.data_dir / "monoke.debug.log"
 
     def ensure_dirs(self) -> Path:
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -89,4 +97,9 @@ def get_settings() -> Settings:
         resolve_concurrency=max(1, _env_int("MONOKE_RESOLVE_CONCURRENCY", 2)),
         resolve_timeout=float(_env("MONOKE_RESOLVE_TIMEOUT", "8")),
         resolution_ttl_days=max(1, _env_int("MONOKE_RESOLVE_TTL_DAYS", 30)),
+        debug=_env_bool("MONOKE_DEBUG", False),
+        debug_log_max_bytes=max(
+            64 * 1024, _env_int("MONOKE_DEBUG_LOG_MAX_BYTES", 2 * 1024 * 1024)
+        ),
+        debug_log_backups=max(0, _env_int("MONOKE_DEBUG_LOG_BACKUPS", 3)),
     )

@@ -13,10 +13,87 @@
     </p>
   </section>
 
-  {{ m.empty_state(
-    "No creators yet",
-    "Paste a cum.st creator URL to start. The add-creator form arrives in T4.2.",
-    "/links",
-    "Browse links"
-  ) }}
+  <form class="add-creator" method="post" action="/creators" data-add-creator>
+    <label for="creator-url">Creator URL</label>
+    <div class="input-row">
+      <input
+        id="creator-url"
+        name="url"
+        type="text"
+        value="{{ typed_url or '' }}"
+        placeholder="cum.st/creators/patreon/274608"
+        autocomplete="off"
+        spellcheck="false"
+        aria-describedby="creator-url-hint{% if error %} creator-url-error{% endif %}"
+        required
+      >
+      <button class="button button-primary" type="submit">Archive</button>
+    </div>
+    <p id="creator-url-hint" class="field-hint">
+      Paste a creator page or a single post URL. The crawl starts in the background.
+    </p>
+    {% if error %}
+      <p id="creator-url-error" class="field-error" role="alert">{{ error }}</p>
+    {% endif %}
+  </form>
+
+  <section class="creators-section" aria-labelledby="creators-title">
+    <div class="section-heading">
+      <h2 id="creators-title">Creators</h2>
+      {% if creators %}<span class="muted">{{ creators|length }} archived</span>{% endif %}
+    </div>
+
+    {% if creators %}
+      <div class="creator-grid">
+        {% for c in creators %}
+          {% set name = c.display_name or c.name or c.service ~ "/" ~ c.service_id %}
+          {% set count = c.post_count if c.post_count is not none else c.post_rows %}
+          <article class="card creator-card">
+            <a class="creator-thumb" href="/c/{{ c.id }}" tabindex="-1" aria-hidden="true">
+              {% if c.thumb_url %}
+                <img class="thumb" src="{{ c.thumb_url }}" alt="" loading="lazy" decoding="async">
+              {% else %}
+                <span class="thumb-placeholder">{{ (name or "?")[0]|upper }}</span>
+              {% endif %}
+            </a>
+
+            <div class="creator-body">
+              <p class="eyebrow creator-service">{{ c.service }}</p>
+              <h3 class="creator-name"><a href="/c/{{ c.id }}">{{ name }}</a></h3>
+              <p class="creator-sync">
+                {% if c.last_synced_at %}Synced {{ c.last_synced_at|relative_time }}{% else %}Never synced{% endif %}
+              </p>
+
+              <dl class="creator-counts">
+                <div><dt>Posts</dt><dd>{{ count or 0 }}</dd></div>
+                <div><dt>Links</dt><dd>{{ c.link_count }}</dd></div>
+                <div><dt>Files</dt><dd>{{ c.file_count }}</dd></div>
+                <div><dt>Videos</dt><dd>{{ c.video_count }}</dd></div>
+              </dl>
+
+              <p class="creator-categories">
+                {{ m.badge("google_drive", "Drive " ~ c.drive_count) }}
+                {{ m.badge("mega", "MEGA " ~ c.mega_count) }}
+                {{ m.badge("direct_media", "Media " ~ c.media_count) }}
+              </p>
+
+              <div class="card-actions">
+                <a class="button button-small" href="/c/{{ c.id }}">Open</a>
+                <a class="button button-small" href="/c/{{ c.id }}/gallery">Gallery</a>
+                <form method="post" action="/c/{{ c.id }}/sync">
+                  <button class="button button-small" type="submit">Sync</button>
+                </form>
+                <form method="post" action="/c/{{ c.id }}/delete"
+                      data-confirm="Delete {{ name }} and every post, link and file in this archive?">
+                  <button class="button button-small button-danger" type="submit">Delete</button>
+                </form>
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      {{ m.empty_state("No creators yet", "Paste a Kemono creator URL to start.") }}
+    {% endif %}
+  </section>
 {% endblock %}

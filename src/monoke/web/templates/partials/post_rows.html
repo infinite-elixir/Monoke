@@ -1,0 +1,31 @@
+{% set qs = filters.query_string() %}
+{% set suffix = ("?" ~ qs) if qs else "" %}
+
+{% if posts %}
+  <div class="post-list">
+    {% for post in posts %}
+      {% include "partials/post_row.html" %}
+    {% endfor %}
+  </div>
+  {% include "partials/pager.html" %}
+{% else %}
+  {% if filters.active %}
+    <section class="empty-state">
+      <h2>No matches for these filters</h2>
+      <p>Nothing in this archive matches the current search and filter combination.</p>
+      <a class="button button-primary" href="{{ ref_url }}">Clear filters</a>
+    </section>
+  {% else %}
+    <section class="empty-state">
+      <h2>No posts yet</h2>
+      <p>The archive is empty for this creator. Start a sync and posts will appear as they land.</p>
+      <form method="post" action="/c/{{ creator.id }}/sync">
+        <button class="button button-primary" type="submit">Sync now</button>
+      </form>
+    </section>
+  {% endif %}
+{% endif %}
+
+{% if oob_facets %}
+  {% include "partials/facets.html" %}
+{% endif %}

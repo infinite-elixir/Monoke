@@ -1,6 +1,6 @@
 # Monoke tickets
 
-23 tickets across 6 epics, targeting **cum.st** (OnlyHaven). Every ticket is a self-contained
+49 tickets across 11 epics, targeting **cum.st** (OnlyHaven). Every ticket is a self-contained
 markdown file with acceptance criteria, so it can be worked, reviewed, and closed independently.
 
 Plan: [`../PLAN.md`](../PLAN.md)
@@ -24,14 +24,41 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T3.4 | [Attachments, media URLs, tags](T3.4-files-and-flags.md) | Extraction | M | T3.1 | done |
 | T3.5 | [CSV and JSON exporters](T3.5-exports.md) | Extraction | S | T3.2 | done |
 | T4.1 | [App shell, templates, static assets](T4.1-shell.md) | UI | S | T0.1 | done |
-| T4.2 | [Dashboard and add-creator flow](T4.2-dashboard.md) | UI | M | T4.1, T2.1 | todo |
-| T4.3 | [Creator page with facets and search](T4.3-creator-page.md) | UI | L | T4.2, T3.2 | todo |
-| T4.4 | [Post page](T4.4-post-page.md) | UI | M | T4.3, T3.4 | todo |
-| T4.5 | [Link explorer](T4.5-link-explorer.md) | UI | M | T4.3, T3.5 | todo |
-| T4.6 | [Live sync progress](T4.6-sync-ui.md) | UI | M | T2.3, T4.2 | todo |
-| T5.1 | [Incremental sync](T5.1-incremental-sync.md) | Sync | M | T2.1, T2.3 | todo |
-| T5.2 | [Full rescan and run history](T5.2-rescan-history.md) | Sync | S | T2.3, T4.2 | todo |
-| T5.3 | [Acceptance run, README, packaging](T5.3-acceptance.md) | Ship | M | all | todo |
+| T4.2 | [Dashboard and add-creator flow](T4.2-dashboard.md) | UI | M | T4.1, T2.1 | done |
+| T4.3 | [Creator page with facets and search](T4.3-creator-page.md) | UI | L | T4.2, T3.2 | done |
+| T4.4 | [Post page](T4.4-post-page.md) | UI | M | T4.3, T3.4 | done |
+| T4.5 | [Link explorer](T4.5-link-explorer.md) | UI | M | T4.3, T3.5 | done |
+| T4.6 | [Live sync progress](T4.6-sync-ui.md) | UI | M | T2.3, T4.2 | done |
+| T4.7 | [Per-creator gallery viewer](T4.7-gallery-viewer.md) | UI | M | T4.3, T3.4 | done (caption images deferred) |
+| T4.8 | [Gallery tile action menu: bookmark and start viewer here](T4.8-gallery-tile-action-menu.md) | UI | M | T4.7, T7.2, T8.1, T8.4, T9.1, T9.2 | todo |
+| T5.1 | [Incremental sync](T5.1-incremental-sync.md) | Sync | M | T2.1, T2.3 | done |
+| T5.2 | [Full rescan and run history](T5.2-rescan-history.md) | Sync | S | T2.3, T4.2 | done |
+| T5.3 | [Acceptance run, README, packaging](T5.3-acceptance.md) | Ship | M | all | done |
+| T6.1 | [Missing favicon.ico returns 404](T6.1-favicon.md) | Debugging & UX | S | T4.1 | done |
+| T6.2 | [Add-creator field and button not clickable](T6.2-unclickable-input.md) | Debugging & UX | M | T4.1 | done |
+| T6.3 | [Page performance: extension slowdown warnings](T6.3-performance.md) | Debugging & UX | M | T4.1 | done |
+| T6.4 | [Debug mode: verbose logging to file](T6.4-debug-mode.md) | Debugging & UX | M | T4.1 | done |
+| T6.5 | [Severe memory growth / browser + shell crash](T6.5-memory-leak.md) | Debugging & UX | L | T6.2, T6.3 | done |
+| T7.0 | [Audit: onlyfans/39058172 has files but no visible videos](T7.0-onlyfans-media-audit.md) | Media | S | — | done |
+| T7.1 | [Normalize attachment kinds and backfill existing files](T7.1-normalize-attachment-kinds.md) | Media | M | T3.4 | done |
+| T7.2 | [Make the gallery media-aware (videos included)](T7.2-video-media-gallery.md) | Media | M | T4.7, T7.1 | done |
+| T7.3 | [Surface media types on the creator page and post cards](T7.3-media-kind-surfacing.md) | Media | M | T4.3, T7.1 | done |
+| T7.4 | [Post page playback for normalized video-backed attachments](T7.4-video-playback-mislabelled.md) | Media | S | T4.4, T7.1 | done |
+| T7.5 | [Explain empty tags for upstream creators](T7.5-empty-upstream-tags.md) | Media | S | T4.3 | done |
+| T7.6 | [Sort video sections by duration (longest / shortest first)](T7.6-gallery-duration-sort.md) | Media | M | T7.2, T7.4 | done |
+| T8.1 | [Fullscreen viewer route, entry point and data contract](T8.1-viewer-route-data.md) | Viewer | M | T4.7, T7.1 | done |
+| T8.2 | [Fullscreen shell and media rendering](T8.2-viewer-fullscreen-shell.md) | Viewer | M | T8.1 | done |
+| T8.3 | [Invisible directional controls: images, posts and input methods](T8.3-viewer-directional-controls.md) | Viewer | M | T8.2 | done |
+| T8.4 | [First-run control hint, dismissal and viewer lifecycle](T8.4-viewer-hint-lifecycle.md) | Viewer | S | T8.3 | done |
+| T8.5 | [Viewer media must fill the viewport and controls must be invisible](T8.5-viewer-invisible-controls-fullscreen-media.md) | Viewer | M | T8.4 | done |
+| T8.6 | [Left/right at a post's edge crosses into the neighbouring post](T8.6-viewer-horizontal-post-crossing.md) | Viewer | M | T8.3, T8.5 | done |
+| T8.7 | [Preload neighbouring images in the fullscreen viewer](T8.7-viewer-neighbour-image-preload.md) | Viewer | M | T8.1, T8.3, T8.6, T6.5 | done |
+| T8.8 | [Preload across post boundaries and add a fullscreen toggle button](T8.8-viewer-cross-post-preload-and-fullscreen.md) | Viewer | M | T8.5, T8.6, T8.7 | done (browser pass manual) |
+| T8.9 | [Fluid transitions between viewer media](T8.9-viewer-fluid-transitions.md) | Viewer | M | T8.1, T8.2, T8.3, T8.5, T8.7, T8.8 | todo |
+| T8.10 | [Finger-following swipe with rubber-band edges](T8.10-viewer-finger-following-swipe.md) | Viewer | M | T8.3, T8.6, T8.8, T8.9 | todo |
+| T9.1 | [Local bookmark storage, repository and toggle endpoints](T9.1-bookmark-storage-and-endpoints.md) | Bookmarks | M | T0.2, T4.4 | done |
+| T9.2 | [Bookmark controls on posts, attachments, gallery tiles and the viewer](T9.2-bookmark-controls-ui.md) | Bookmarks | M | T9.1, T4.3, T4.4, T4.7, T8.5 | done (browser pass manual) |
+| T9.3 | [Bookmarks library page and navigation](T9.3-bookmarks-library-page.md) | Bookmarks | M | T9.1, T9.2, T4.1, T4.7 | done |
 
 ## Build order
 
@@ -44,8 +71,23 @@ T0.2 → T3.1 → T3.2 → T3.3
 T3.2 → T3.5
 T0.1 → T4.1 → T4.2 → T4.3 → T4.4
                           ↘ T4.5
+                          ↘ T4.7 (gallery, after T3.4)
 T2.3 + T4.2 → T4.6
 T2.1 + T2.3 → T5.1
+T3.4 → T7.1 → T7.2 (gallery)
+             ↘ T7.3 (creator page)
+             ↘ T7.4 (post page)
+T7.2 → T7.6 (duration sort)
+T4.3 → T7.5 (empty tags)
+T7.1 → T8.1 → T8.2 → T8.3 → T8.4 → T8.5 (fullscreen viewer)
+T8.3 + T8.5 → T8.6 (left/right crosses posts)
+T8.6 → T8.7 → T8.8 (preload across posts, fullscreen button)
+T8.7 + T8.8 → T8.9 (fluid viewer transitions)
+T8.6 + T8.8 + T8.9 → T8.10 (finger-following swipe)
+T0.2 + T4.4 → T9.1 → T9.2 (bookmark controls)
+                     ↘ T9.3 (bookmarks library)
+T4.7 + T7.2 + T8.1 + T8.4 + T9.2 → T4.8 (gallery action menu)
+T7.0 audit first
 T5.3 last
 ```
 

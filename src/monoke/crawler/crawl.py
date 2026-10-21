@@ -89,13 +89,22 @@ async def crawl_full(
     concurrency: int = 4,
     progress: ProgressCallback | None = None,
     full: bool = False,
+    deep: bool = False,
+    refresh_window: int = 0,
     limit: int | None = None,
     fresh: bool = False,
     resolve: bool | None = None,
     resolver: ShortenerResolver | None = None,
     no_resolve: bool = False,
+    creator_id: int | None = None,
+    run_id: int | None = None,
 ) -> RunResult:
-    """Crawl one creator from URL ref to a complete archive."""
+    """Crawl one creator from URL ref to a complete archive.
+
+    ``creator_id`` and ``run_id`` let a caller (the web app) create the run row
+    up front, so the response can redirect immediately and a progress client can
+    subscribe before the first network call happens.
+    """
     if no_resolve:
         resolve = False
     settings = settings or get_settings()
@@ -112,17 +121,18 @@ async def crawl_full(
         resolver = ShortenerResolver(settings, conn)
         resolver_created = True
     result = RunResult()
-    run_id: int | None = None
-    creator_id: int | None = None
     pending: list[str] = []
 
     try:
-        with conn:
-            creator_id = db.upsert_creator(
-                conn, service=ref.service, service_id=ref.creator_id
-            )
-            db.cancel_stale_runs(conn, creator_id)
-            run_id = db.create_run(conn, creator_id, "full")
+        if creator_id is None:
+            with conn:
+                creator_id = db.upsert_creator(
+                    conn, service=ref.service, service_id=ref.creator_id
+                )
+        if run_id is None:
+            with conn:
+                db.cancel_stale_runs(conn, creator_id)
+                run_id = db.create_run(conn, creator_id, "full")
         result.creator_id = creator_id
         result.run_id = run_id
         bus.publish(
@@ -212,10 +222,24 @@ async def crawl_full(
             )
 
         status_map = db.post_status_map(conn, creator_id)
-        if full:
-            pending = ids
+        seen_set = set(ids)
+        # missing upstream handling
+        rows = conn.execute(
+            "SELECT id, service_id FROM posts WHERE creator_id = ?", (creator_id,)
+        ).fetchall()
+        for row in rows:
+            db.set_missing_upstream(conn, int(row["id"]), row["service_id"] not in seen_set)
+        if deep or full:
+            pending = list(ids)
         else:
-            pending = [post_id for post_id in ids if not status_map.get(post_id)]
+            new_ids = [post_id for post_id in ids if post_id not in status_map]
+            refresh_ids = list(ids[: max(0, refresh_window)])
+            pending = []
+            seen_pending = set()
+            for post_id in new_ids + refresh_ids:
+                if post_id not in seen_pending:
+                    seen_pending.add(post_id)
+                    pending.append(post_id)
         if limit is not None:
             pending = pending[: max(0, limit)]
 
@@ -295,6 +319,12 @@ async def crawl_full(
                     "result": result.to_dict(),
                 },
             )
+            # The event history of a finished run is trimmed by the bus itself
+            # once too many runs are known (T6.5).
+            try:
+                db.cache_prune(conn)
+            except Exception:
+                log.exception("could not prune the api cache")
         if resolver_created and resolver is not None:
             await resolver.aclose()
         if owns_client:
@@ -303,6 +333,24 @@ async def crawl_full(
             conn.close()
 
     return result
+
+
+async def sync(
+    ref,
+    *,
+    deep=False,
+    refresh_window=100,
+    progress=None,
+    **kwargs,
+):
+    """Incremental sync wrapper around crawl_full."""
+    return await crawl_full(
+        ref,
+        deep=deep,
+        refresh_window=refresh_window,
+        progress=progress,
+        **kwargs,
+    )
 
 
 async def _fan_out(
@@ -485,6 +533,10 @@ def run_sync(args: argparse.Namespace) -> int:
         return 130
 
     assert result is not None
+
+    if result.run_id is not None:
+        # Nothing subscribes to a CLI run: release the buffered events.
+        bus.forget(result.run_id)
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))

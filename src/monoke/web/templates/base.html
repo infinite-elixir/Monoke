@@ -1,15 +1,35 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-nsfw="on"{% if debug_mode %} data-debug="1"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title>{% block title %}Monoke{% endblock %}</title>
   <link rel="stylesheet" href="{{ asset('style.css') }}">
-  <script src="{{ asset('app.js') }}"></script>
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
+  <script>
+    (function () {
+      var root = document.documentElement;
+      try {
+        var t = localStorage.getItem("monoke-theme");
+        if (!t) {
+          t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        root.setAttribute("data-theme", t === "light" ? "light" : "dark");
+      } catch (e) {}
+      try {
+        var n = localStorage.getItem("monoke-nsfw");
+        if (n !== null) {
+          root.setAttribute("data-nsfw", n === "1" ? "on" : "off");
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <script src="{{ asset('app.js') }}" defer></script>
   <script src="{{ asset('htmx.min.js') }}" defer></script>
 </head>
-<body>
+<body{% block body_attrs %}{% endblock %}>
   <a class="skip-link" href="#content">Skip to content</a>
 
   <header class="site-header">
@@ -19,6 +39,7 @@
       <nav class="site-nav" aria-label="Primary">
         <a href="/"{% if active_page == "creators" %} aria-current="page"{% endif %}>Creators</a>
         <a href="/links"{% if active_page == "links" %} aria-current="page"{% endif %}>Links</a>
+        <a href="/bookmarks"{% if active_page == "bookmarks" %} aria-current="page"{% endif %}>Bookmarks</a>
       </nav>
 
       <div class="header-actions">
@@ -45,5 +66,13 @@
     <span>Last sync <time datetime="{{ last_sync or '' }}">{{ last_sync or "never" }}</time></span>
     <span class="footer-version">v{{ app_version }}</span>
   </footer>
+  <details id="monoke-debug" class="debug-panel"{% if debug_mode %} open{% endif %} hidden>
+    <summary>Debug <span id="monoke-debug-count" class="debug-count">0</span></summary>
+    <div class="debug-actions">
+      <button type="button" class="debug-clear" data-debug-clear>Clear</button>
+    </div>
+    <pre id="monoke-debug-log"></pre>
+  </details>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

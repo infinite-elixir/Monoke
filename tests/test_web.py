@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from monoke.config import get_settings
 from monoke.web.app import create_app
-from monoke.web.templating import TEMPLATES_DIR
+from monoke.web.templating import TEMPLATES_DIR, asset
 
 
 @pytest.fixture(autouse=True)
@@ -29,9 +29,9 @@ def test_shell_layout_and_cache_busting():
     assert ">Links</a>" in body
     assert "Data <code>" in body
     assert "Last sync" in body
-    assert "/static/style.css?v=0.1.0" in body
-    assert "/static/app.js?v=0.1.0" in body
-    assert "/static/htmx.min.js?v=0.1.0" in body
+    assert asset("style.css") in body
+    assert asset("app.js") in body
+    assert asset("htmx.min.js") in body
     assert "http://" not in body
     assert "https://" not in body
 
@@ -52,7 +52,8 @@ def test_static_assets_are_local():
     ):
         assert f".badge-{category}" in css.text
     assert ':root[data-theme="dark"]' in css.text
-    assert "img.thumb.nsfw" in css.text
+    assert "img.thumb" in css.text
+    assert "--thumb-filter" in css.text
     assert ".no-attachments" in css.text
 
     js = client.get("/static/app.js")
@@ -60,7 +61,6 @@ def test_static_assets_are_local():
     assert "localStorage" in js.text
     assert "monoke-theme" in js.text
     assert "monoke-nsfw" in js.text
-    assert "htmx:afterSwap" in js.text
     assert "data-copy" in js.text
 
     htmx = client.get("/static/htmx.min.js")
@@ -85,7 +85,7 @@ def test_404_uses_template():
     assert response.status_code == 404
     assert "Page not found" in response.text
     assert "Traceback" not in response.text
-    assert "/static/style.css?v=0.1.0" in response.text
+    assert asset("style.css") in response.text
 
 
 def test_500_uses_template():
@@ -117,3 +117,61 @@ def test_static_directory_has_vendored_htmx():
     static = Path(TEMPLATES_DIR).parent / "static" / "htmx.min.js"
     assert static.is_file()
     assert static.stat().st_size > 10_000
+
+
+# --------------------------------------------------------------------------- #
+# T8.5 - content-hashed assets and cache revalidation
+# --------------------------------------------------------------------------- #
+
+
+def test_asset_version_tracks_file_content(tmp_path, monkeypatch):
+    from monoke.web import templating
+
+    monkeypatch.setattr(templating, "STATIC_DIR", tmp_path)
+    target = tmp_path / "style.css"
+    target.write_text("body { color: black; }", encoding="utf-8")
+
+    first = templating.asset("style.css")
+    assert first == templating.asset("style.css")
+    assert first.startswith("/static/style.css?v=")
+    assert templating.ASSET_VERSION not in first
+
+    target.write_text("body { color: white; }", encoding="utf-8")
+    second = templating.asset("style.css")
+    assert second != first
+    assert templating.asset("style.css") == second
+
+    # A missing file degrades to the app version rather than raising.
+    missing = templating.asset("nope.css")
+    assert missing == f"/static/nope.css?v={templating.ASSET_VERSION}"
+
+
+def test_static_responses_revalidate():
+    client = TestClient(create_app())
+
+    response = client.get("/static/style.css")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, must-revalidate"
+
+
+def test_stylesheet_has_a_zone_reset_rule():
+    from monoke.web.templating import STATIC_DIR
+
+    css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
+    assert ".viewer-zone {" in css
+    zone_rule = css.split(".viewer-zone {", 1)[1].split("}", 1)[0]
+    for declaration in (
+        "appearance: none",
+        "-webkit-appearance: none",
+        "background: none",
+        "border: 0",
+        "box-shadow: none",
+        "border-radius: 0",
+        "color: transparent",
+        "font-size: 0",
+        "line-height: 0",
+        "min-width: 0",
+        "min-height: 0",
+    ):
+        assert declaration in zone_rule

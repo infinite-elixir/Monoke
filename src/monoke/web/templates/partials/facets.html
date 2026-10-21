@@ -1,0 +1,67 @@
+<aside id="facets-panel" class="facets" aria-label="Filters"{% if oob_facets %} hx-swap-oob="outerHTML"{% endif %}>
+  <section class="facet">
+    <h3>Categories</h3>
+    <ul class="facet-list">
+      <li>
+        <a class="facet-link{% if not filters.category %} active{% endif %}"
+           href="{{ filters.url_for(creator.id, category=None) }}">
+          <span>All links</span><span class="facet-count">{{ summary.links or 0 }}</span>
+        </a>
+      </li>
+      {% for facet in category_facets %}
+        <li>
+          <a class="facet-link{% if facet.active %} active{% endif %}" href="{{ facet.url }}">
+            <span>{{ facet.label }}</span><span class="facet-count">{{ facet.count }}</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="facet">
+    <h3>Tags <span class="facet-note">top 20</span></h3>
+    {% if tag_facets %}
+      <ul class="facet-list facet-tags">
+        {% for tag in tag_facets %}
+          <li>
+            <a class="facet-link{% if tag.active %} active{% endif %}" href="{{ tag.url }}">
+              <span>{{ tag.label }}</span><span class="facet-count">{{ tag.count }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      {% if not tag_available %}
+        <p class="muted facet-note">No tags provided by cum.st for this creator.</p>
+      {% else %}
+        <p class="muted facet-note">No tags under these filters.</p>
+      {% endif %}
+    {% endif %}
+  </section>
+
+  <section class="facet">
+    <h3>Availability</h3>
+    <ul class="facet-list">
+      <li>
+        <a class="facet-link{% if filters.dead is none %} active{% endif %}"
+           href="{{ filters.url_for(creator.id, dead=None) }}">
+          <span>All posts</span><span class="facet-count">{{ summary.posts or 0 }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="facet-link{% if dead_facet.active %} active{% endif %}" href="{{ dead_facet.url }}">
+          <span>Dead posts</span><span class="facet-count">{{ dead_facet.count }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="facet-link{% if alive_facet.active %} active{% endif %}" href="{{ alive_facet.url }}">
+          <span>Alive only</span>
+        </a>
+      </li>
+    </ul>
+  </section>
+
+  {% if filters.active %}
+    <a class="button button-small button-quiet facet-clear" href="{{ ref_url }}">Clear filters</a>
+  {% endif %}
+</aside>

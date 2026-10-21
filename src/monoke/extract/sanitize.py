@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import nh3
 from bs4 import BeautifulSoup
 
@@ -54,6 +56,38 @@ def sanitize_html(html: str | None) -> str:
         link_rel="noopener noreferrer nofollow",
         set_tag_attribute_values={"a": {"target": "_blank"}},
     )
+
+
+def lazy_images(
+    html: str | None, *, allowed_hosts: set[str] | frozenset[str] | None = None
+) -> str:
+    """Mark caption images lazy and drop hosts the page is not allowed to fetch.
+
+    The post page's network contract is narrow: on load it may request
+    ``img.cum.st`` thumbnails and nothing else. Caption images from other hosts
+    are removed; the link itself stays in the links table.
+    """
+    if not html:
+        return ""
+    soup = BeautifulSoup(html, "html.parser")
+    images = soup.find_all("img")
+    if not images:
+        return html
+    for image in images:
+        src = str(image.get("src") or "")
+        if allowed_hosts is not None:
+            try:
+                host = (urlsplit(src).hostname or "").lower()
+            except ValueError:
+                host = ""
+            if host not in allowed_hosts:
+                image.decompose()
+                continue
+        image["loading"] = "lazy"
+        image["decoding"] = "async"
+        if not image.get("alt"):
+            image["alt"] = ""
+    return str(soup)
 
 
 def caption_text(html: str | None) -> str:

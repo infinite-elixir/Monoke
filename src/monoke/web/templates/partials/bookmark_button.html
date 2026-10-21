@@ -1,0 +1,17 @@
+{# Reusable local bookmark toggle (T9.2).
+   A plain form POST is the contract: it works with JavaScript disabled and
+   T9.1 redirects back to the hidden `next` path. app.js may progressively
+   enhance the submit with a JSON request. #}
+{% macro bookmark_button(action, bookmarked, next_url, target, name, compact=False, extra_class="") -%}
+<form class="bookmark-form" method="post" action="{{ action }}" data-bookmark-form>
+  <input type="hidden" name="next" value="{{ next_url }}">
+  <button type="submit"
+          class="button button-small bookmark-button{% if compact %} bookmark-compact{% endif %}{% if bookmarked %} is-bookmarked{% endif %}{% if extra_class %} {{ extra_class }}{% endif %}"
+          aria-pressed="{{ 'true' if bookmarked else 'false' }}"
+          aria-label="Bookmark {{ target }}: {{ name }}"
+          data-bookmark-button
+          data-bookmark-target="{{ target }}">
+    {{- "Bookmarked" if bookmarked else "Bookmark" -}}
+  </button>
+</form>
+{%- endmacro %}

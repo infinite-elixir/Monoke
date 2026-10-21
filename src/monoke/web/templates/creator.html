@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% set name = creator.display_name or creator.name or (creator.service ~ "/" ~ creator.service_id) %}
+
+{% block title %}{{ name }} · Monoke{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumb">
+    <a href="/">Creators</a>
+    <span aria-hidden="true">/</span>
+    <span aria-current="page">{{ name }}</span>
+  </nav>
+
+  <header class="creator-header">
+    <div class="creator-heading">
+      <p class="eyebrow">{{ creator.service }}</p>
+      <h1 id="creator-heading" tabindex="-1">{{ name }}</h1>
+      <p class="creator-meta">
+        {% if creator.last_synced_at %}
+          Last sync <time datetime="{{ creator.last_synced_at }}">{{ creator.last_synced_at|relative_time }}</time>
+        {% else %}
+          Never synced
+        {% endif %}
+        <span class="muted">·</span>
+        <span class="muted">{{ creator.service }}/{{ creator.service_id }}</span>
+      </p>
+    </div>
+
+    <div class="creator-actions">
+      <a class="button" href="/c/{{ creator.id }}/viewer" data-viewer-open>View latest</a>
+      <a class="button" href="/c/{{ creator.id }}/gallery">Gallery</a>
+      {% if summary.videos %}
+        <a class="button" href="/c/{{ creator.id }}/gallery?kind=video">Videos</a>
+      {% endif %}
+      <form method="post" action="/c/{{ creator.id }}/sync" data-sync-form>
+        <button class="button button-primary" type="submit" data-sync-button
+                {% if active_run %}disabled aria-busy="true"{% endif %}>
+          {% if active_run %}Syncing…{% else %}Sync{% endif %}
+        </button>
+      </form>
+      <form method="post" action="/c/{{ creator.id }}/delete"
+            data-confirm="Delete {{ name }} and every post, link and file in this archive?">
+        <button class="button button-danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </header>
+
+  {% include "partials/sync_progress.html" %}
+
+  <dl class="stat-strip" aria-label="Archive totals">
+    <div><dt>Posts</dt><dd>{{ summary.posts or 0 }}</dd></div>
+    <div><dt>Links</dt><dd>{{ summary.links or 0 }}</dd></div>
+    <div><dt>Files</dt><dd>{{ summary.files or 0 }}</dd></div>
+    <div><dt>Images</dt><dd><a href="/c/{{ creator.id }}?media=image">{{ summary.images or 0 }}</a></dd></div>
+    <div><dt>Videos</dt><dd><a href="/c/{{ creator.id }}?media=video">{{ summary.videos or 0 }}</a></dd></div>
+    <div><dt>GIFs</dt><dd><a href="/c/{{ creator.id }}?media=gif">{{ summary.gifs or 0 }}</a></dd></div>
+    {% if summary.audio %}
+      <div><dt>Audio</dt><dd><a href="/c/{{ creator.id }}?media=audio">{{ summary.audio }}</a></dd></div>
+    {% endif %}
+    <div><dt>Direct links</dt><dd>{{ summary.media or 0 }}</dd></div>
+    <div><dt>Drive</dt><dd>{{ summary.drive or 0 }}</dd></div>
+    <div><dt>MEGA</dt><dd>{{ summary.mega or 0 }}</dd></div>
+  </dl>
+
+  <div class="creator-layout">
+    {% include "partials/facets.html" %}
+
+    <section class="posts-panel" aria-labelledby="posts-title">
+      <div class="section-heading">
+        <h2 id="posts-title">Posts</h2>
+        <span class="muted htmx-indicator" id="filter-status" aria-live="polite">Updating…</span>
+      </div>
+
+      <form
+        id="creator-filters"
+        class="filters"
+        method="get"
+        action="/c/{{ creator.id }}"
+        hx-get="/c/{{ creator.id }}/rows"
+        hx-target="#posts-region"
+        hx-swap="innerHTML"
+        hx-trigger="change, submit, keyup changed delay:400ms"
+        hx-indicator="#filter-status"
+        data-filter-path="/c/{{ creator.id }}"
+      >
+        <div class="filter-field filter-search">
+          <label for="filter-q">Search</label>
+          <input id="filter-q" type="search" name="q" value="{{ filters.q or '' }}"
+                 placeholder="title, caption or URL">
+        </div>
+
+        <div class="filter-field">
+          <label for="filter-category">Category</label>
+          <select id="filter-category" name="category">
+            <option value="">Any</option>
+            {% for key in category_order %}
+              <option value="{{ key }}"{% if filters.category == key %} selected{% endif %}>{{ category_labels[key] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label for="filter-media">Media</label>
+          <select id="filter-media" name="media">
+            <option value="">Any</option>
+            {% for key, label in media_labels.items() %}
+              <option value="{{ key }}"{% if filters.media == key %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {% if tag_facets or filters.tag or tag_available %}
+          <div class="filter-field">
+            <label for="filter-tag">Tag</label>
+            <select id="filter-tag" name="tag">
+              <option value="">Any</option>
+              {% for tag in tag_facets %}
+                <option value="{{ tag.slug }}"{% if filters.tag == tag.slug %} selected{% endif %}>{{ tag.label }} ({{ tag.count }})</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% else %}
+          <p class="filter-field filter-note muted">
+            No tags provided by cum.st for this creator. Tags are not derived from captions.
+          </p>
+        {% endif %}
+
+        <div class="filter-field">
+          <label for="filter-dead">Availability</label>
+          <select id="filter-dead" name="dead">
+            <option value="">Any</option>
+            <option value="0"{% if filters.dead is false %} selected{% endif %}>Alive</option>
+            <option value="1"{% if filters.dead is true %} selected{% endif %}>Dead</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label for="filter-links">Links</label>
+          <select id="filter-links" name="has_links">
+            <option value="">Any</option>
+            <option value="1"{% if filters.has_links is true %} selected{% endif %}>With links</option>
+            <option value="0"{% if filters.has_links is false %} selected{% endif %}>Without links</option>
+          </select>
+        </div>
+
+        <div class="filter-field">
+          <label for="filter-from">From</label>
+          <input id="filter-from" type="date" name="from" value="{{ filters.date_from|date_input }}">
+        </div>
+
+        <div class="filter-field">
+          <label for="filter-to">To</label>
+          <input id="filter-to" type="date" name="to" value="{{ filters.date_to|date_input }}">
+        </div>
+
+        <div class="filter-field">
+          <label for="filter-sort">Sort</label>
+          <select id="filter-sort" name="sort">
+            {% for key, label in sorts.items() %}
+              <option value="{{ key }}"{% if filters.sort == key %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="filter-actions">
+          <button class="button button-small" type="submit">Apply</button>
+          {% if filters.active %}
+            <a class="button button-small button-quiet" href="/c/{{ creator.id }}">Clear</a>
+          {% endif %}
+        </div>
+      </form>
+
+      <div id="posts-region">
+        {% include "partials/post_rows.html" %}
+      </div>
+    </section>
+  </div>
+{% endblock %}

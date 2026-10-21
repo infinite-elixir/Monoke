@@ -266,3 +266,95 @@ def test_link_resolution_roundtrip(conn):
 
     db.put_resolution(conn, url, None)
     assert db.get_resolution(conn, url)["final_url"] is None
+
+
+# --------------------------------------------------------------------------- #
+# T7.1 - normalized kinds and the V5 backfill
+# --------------------------------------------------------------------------- #
+
+
+def _file_row(sha: str, kind: str, **overrides) -> dict:
+    row = {
+        "sha256": sha,
+        "kind": kind,
+        "raw_kind": kind,
+        "mime_type": "image/gif" if kind in {"gif", "image"} else "video/mp4",
+        "url": f"https://e1.cum.st/media/{sha}/original.{'mp4' if kind == 'video' else 'gif'}",
+        "variants": [{"name": f"original.{'mp4' if kind == 'video' else 'gif'}"}],
+    }
+    row.update(overrides)
+    return row
+
+
+def test_v5_backfills_raw_kind_on_a_v4_database(settings):
+    conn = db.connect(settings)
+    try:
+        for index in range(4):
+            for statement in db.MIGRATIONS[index]:
+                conn.execute(statement)
+            conn.execute(f"PRAGMA user_version = {index + 1}")
+        conn.execute(
+            "INSERT INTO creators (service, service_id, name) VALUES ('patreon', '1', 'n')"
+        )
+        conn.execute(
+            "INSERT INTO posts (creator_id, service_id, service, title) VALUES (1, 'p', 'patreon', 'P')"
+        )
+        conn.execute(
+            """
+            INSERT INTO files (post_id, sha256, kind, mime_type, url)
+            VALUES (1, ?, 'gif', 'image/gif', 'https://e1/original.gif')
+            """,
+            ("a" * 64,),
+        )
+        conn.commit()
+
+        assert db.migrate(conn) == 6
+        row = conn.execute("SELECT kind, raw_kind FROM files").fetchone()
+        assert row["kind"] == "gif"
+        assert row["raw_kind"] == "gif"
+    finally:
+        conn.close()
+
+
+def test_reclassify_fixes_only_mp4_backed_gifs_and_is_idempotent(conn):
+    creator_id = make_creator(conn)
+    post_id = make_post(conn, creator_id, "1")
+    mp4_gif = "1" * 64
+    real_gif = "2" * 64
+    image = "3" * 64
+    db.replace_files(
+        conn,
+        post_id,
+        [
+            _file_row(
+                mp4_gif,
+                "gif",
+                mime_type="image/gif",
+                original_filename="clip.mp4",
+                duration_ms=12_000,
+                variants=[{"name": "original.mp4"}],
+            ),
+            _file_row(real_gif, "gif", original_filename="mood.gif"),
+            _file_row(
+                image,
+                "image",
+                mime_type="image/jpeg",
+                original_filename="photo.jpg",
+                variants=[{"name": "original.jpg"}],
+            ),
+        ],
+    )
+
+    dry = db.reclassify_files(conn, dry_run=True)
+    assert dry == [{"from_kind": "gif", "to_kind": "video", "count": 1}]
+    kinds = {row["sha256"]: row["kind"] for row in db.list_files(conn, post_id)}
+    assert kinds == {mp4_gif: "gif", real_gif: "gif", image: "image"}
+
+    assert db.reclassify_files(conn) == [
+        {"from_kind": "gif", "to_kind": "video", "count": 1}
+    ]
+    kinds = {row["sha256"]: row["kind"] for row in db.list_files(conn, post_id)}
+    assert kinds == {mp4_gif: "video", real_gif: "gif", image: "image"}
+    assert all(row["raw_kind"] for row in db.list_files(conn, post_id))
+
+    assert db.reclassify_files(conn) == []

@@ -1,0 +1,36 @@
+{% set seen = active_run.posts_seen if active_run else 0 %}
+{% set done = active_run.posts_done if active_run else 0 %}
+{% set percent = ((done / seen) * 100) if seen else 0 %}
+<section id="sync-progress"
+         class="sync-progress"
+         data-sync-progress
+         data-creator-id="{{ creator.id }}"
+         data-run-id="{{ active_run.id if active_run else '' }}"
+         data-started-at="{{ active_run.started_at if active_run else '' }}"
+         data-rows-url="/c/{{ creator.id }}/rows{% if rows_query %}?{{ rows_query }}{% endif %}"
+         aria-label="Sync progress"
+         {% if not active_run %}hidden{% endif %}>
+  <div class="sync-head">
+    <span class="sync-phase" data-sync-phase>
+      {% if active_run %}Syncing {{ creator.display_name or creator.name or creator.service_id }}…{% else %}Idle{% endif %}
+    </span>
+    <span class="sync-elapsed" data-sync-elapsed>0.0 s</span>
+  </div>
+
+  <div class="sync-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+       aria-valuenow="{{ percent|round(0, 'floor')|int }}" data-sync-bar>
+    <span class="sync-bar-fill" data-sync-fill style="width: {{ percent|round(1) }}%"></span>
+  </div>
+
+  <p class="sync-counts">
+    <span data-sync-posts>{{ done }} / {{ seen }} posts</span>
+    <span class="muted">·</span>
+    <span data-sync-links>{{ active_run.links_found if active_run else 0 }} links</span>
+  </p>
+
+  <div class="sync-actions">
+    <button class="button button-small button-danger" type="button" data-sync-cancel>Cancel</button>
+  </div>
+</section>
+
+<p class="sync-summary" data-sync-summary hidden></p>

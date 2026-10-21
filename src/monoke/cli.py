@@ -21,6 +21,7 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default=None, help="bind address (default: from config)")
     serve.add_argument("--port", type=int, default=None, help="port (default: from config)")
     serve.add_argument("--reload", action="store_true", help="auto-reload on code changes")
+    serve.add_argument("--debug", action="store_true", help="enable verbose logging to data/monoke.debug.log")
 
     sync = sub.add_parser("sync", help="crawl a creator URL")
     sync.add_argument("url", help="https://cum.st/creators/{service}/{id}")
@@ -39,6 +40,12 @@ def _build_parser() -> argparse.ArgumentParser:
     db = sub.add_parser("db", help="database utilities")
     db_sub = db.add_subparsers(dest="db_command", required=True, metavar="DB_COMMAND")
     db_sub.add_parser("stats", help="print row counts and database size")
+    reclassify = db_sub.add_parser(
+        "reclassify", help="recompute normalized file kinds from stored raw fields"
+    )
+    reclassify.add_argument(
+        "--dry-run", action="store_true", help="report transitions without writing"
+    )
 
     return parser
 
@@ -51,10 +58,12 @@ def main(argv: list[str] | None = None) -> int:
         from .web.app import run
 
         settings = get_settings()
+        debug = bool(args.debug) or settings.debug
         return run(
             host=args.host or settings.host,
             port=args.port or settings.port,
             reload=args.reload,
+            debug=debug,
         )
 
     if args.command == "sync":
@@ -67,6 +76,10 @@ def main(argv: list[str] | None = None) -> int:
             from .db import print_stats
 
             return print_stats()
+        if args.db_command == "reclassify":
+            from .db import print_reclassify
+
+            return print_reclassify(dry_run=args.dry_run)
 
     parser.error(f"unknown command: {args.command!r}")
     return 2

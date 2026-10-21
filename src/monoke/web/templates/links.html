@@ -1,21 +1,195 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 
+{% macro link_table(rows) -%}
+  <div class="table-wrap">
+    <table class="link-table">
+      <thead>
+        <tr>
+          <th scope="col">Category</th>
+          <th scope="col">Label</th>
+          <th scope="col">URL</th>
+          <th scope="col">Post</th>
+          <th scope="col">Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for link in rows %}
+          {% set href = link.resolved_url or link.url %}
+          <tr class="link-row" data-row-href="{{ link.href }}">
+            <td>{{ m.badge(link.category) }}</td>
+            <td class="link-label">{{ link.label or "—" }}</td>
+            <td class="link-url">
+              {% if href %}
+                <a href="{{ href }}" target="_blank" rel="noopener noreferrer nofollow"
+                   title="{{ href }}">{{ href|display_url }}</a>
+                <button class="button button-small" type="button"
+                        data-copy="{{ link.copy_value }}"
+                        title="{{ link.copy_label }}"
+                        aria-label="{{ link.copy_label }}">Copy</button>
+                <span class="link-hint link-hint-{{ link.copy_state }}">{{ link.copy_state }}</span>
+              {% else %}
+                <span class="muted">no URL</span>
+              {% endif %}
+            </td>
+            <td class="link-post">
+              <a href="{{ link.href }}">{{ link.post_title or link.post_id }}</a>
+            </td>
+            <td class="link-date">
+              {% if link.published %}
+                <time datetime="{{ link.published|short_date }}">{{ link.published|short_date }}</time>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{%- endmacro %}
+
 {% block title %}Links · Monoke{% endblock %}
 
 {% block content %}
-  <section class="hero">
-    <p class="eyebrow">Every saved link</p>
-    <h1>Links</h1>
-    <p class="lede">
-      The flat link explorer with filters, grouping and exports arrives in T4.5.
-    </p>
-  </section>
+  <nav class="breadcrumbs" aria-label="Breadcrumb">
+    <a href="/">Creators</a>
+    <span aria-hidden="true">/</span>
+    {% if creator %}
+      <a href="/c/{{ creator.id }}">{{ creator.display_name or creator.name or creator.service_id }}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">Links</span>
+    {% else %}
+      <span aria-current="page">Links</span>
+    {% endif %}
+  </nav>
 
-  {{ m.empty_state(
-    "No links to show yet",
-    "Sync a creator first; every caption link will land here, classified.",
-    "/",
-    "Back to creators"
-  ) }}
+  <header class="links-header">
+    <div class="links-heading">
+      <div>
+        <p class="eyebrow">{% if creator %}Creator links{% else %}Every saved link{% endif %}</p>
+        <h1>Links</h1>
+        <p class="lede">
+          One flat table of every link, classified. Filter it, group it, or take it away as CSV or JSON.
+        </p>
+      </div>
+      <div class="links-actions">
+        <a class="button" href="{{ csv_url }}">Export CSV</a>
+        <a class="button" href="{{ json_url }}">Export JSON</a>
+      </div>
+    </div>
+
+    <dl class="stat-strip links-stats" aria-label="Link totals">
+      <div><dt>Links</dt><dd>{{ total }}</dd></div>
+      {% for stat in stats %}
+        <div><dt>{{ stat.label }}</dt><dd>{{ stat.count }}</dd></div>
+      {% endfor %}
+      <div><dt>Unresolved shorteners</dt><dd>{{ unresolved }}</dd></div>
+    </dl>
+  </header>
+
+  <form id="link-filters" class="filters link-filters" method="get"
+        action="{{ base_url }}" data-auto-submit>
+    <input type="hidden" name="category_filter" value="1">
+
+    <div class="filter-field filter-search">
+      <label for="link-q">Search</label>
+      <input id="link-q" type="search" name="q" value="{{ filters.q or '' }}"
+             placeholder="label or URL">
+    </div>
+
+    {% if creator_id is none %}
+      <div class="filter-field">
+        <label for="link-creator">Creator</label>
+        <select id="link-creator" name="creator">
+          <option value="">All creators</option>
+          {% for option in creators %}
+            <option value="{{ option.id }}"{% if selected_creator == option.id %} selected{% endif %}>{{ option.name }} ({{ option.n }})</option>
+          {% endfor %}
+        </select>
+      </div>
+    {% endif %}
+
+    <div class="filter-field">
+      <label for="link-resolved">Shortener</label>
+      <select id="link-resolved" name="has_resolved">
+        <option value="">Any</option>
+        <option value="1"{% if filters.has_resolved is true %} selected{% endif %}>Resolved</option>
+        <option value="0"{% if filters.has_resolved is false %} selected{% endif %}>Unresolved</option>
+      </select>
+    </div>
+
+    <div class="filter-field">
+      <label for="link-sort">Sort</label>
+      <select id="link-sort" name="sort">
+        {% for key, label in sorts.items() %}
+          <option value="{{ key }}"{% if filters.sort == key %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="filter-field">
+      <label for="link-group">Layout</label>
+      <select id="link-group" name="group">
+        <option value="1"{% if filters.grouped %} selected{% endif %}>Grouped by category</option>
+        <option value="0"{% if not filters.grouped %} selected{% endif %}>Flat list</option>
+      </select>
+    </div>
+
+    <fieldset class="filter-categories">
+      <legend>Categories</legend>
+      <div class="category-checks">
+        {% for facet in category_filters %}
+          <label class="check">
+            <input type="checkbox" name="category" value="{{ facet.key }}"{% if facet.checked %} checked{% endif %}>
+            <span>{{ facet.label }}</span>
+            <span class="facet-count">{{ facet.count }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="filter-actions">
+      <button class="button button-small" type="submit">Apply</button>
+      <a class="button button-small button-quiet" href="{{ base_url }}">Clear</a>
+    </div>
+  </form>
+
+  {% if rows %}
+    {% if grouped %}
+      {% for group in groups %}
+        <section class="link-group" aria-labelledby="link-group-{{ group.key }}">
+          <h2 class="link-group-header" id="link-group-{{ group.key }}">
+            <span>{{ group.label }}</span>
+            <span class="facet-count">{{ group.count }}</span>
+          </h2>
+          {{ link_table(group.links) }}
+        </section>
+      {% endfor %}
+    {% else %}
+      {{ link_table(rows) }}
+    {% endif %}
+
+    {% include "partials/pager.html" %}
+  {% else %}
+    {% if filters.active %}
+      <section class="empty-state">
+        <h2>No links match these filters</h2>
+        <p>Nothing in this archive matches the current search, category or resolution filters.</p>
+        <a class="button button-primary" href="{{ base_url }}">Clear filters</a>
+      </section>
+    {% else %}
+      <section class="empty-state">
+        <h2>No links yet</h2>
+        <p>Sync a creator and every caption link will land here, classified and searchable.</p>
+        {% if creator %}
+          <form method="post" action="/c/{{ creator.id }}/sync">
+            <button class="button button-primary" type="submit">Sync now</button>
+          </form>
+        {% else %}
+          <a class="button button-primary" href="/">Back to creators</a>
+        {% endif %}
+      </section>
+    {% endif %}
+  {% endif %}
 {% endblock %}
