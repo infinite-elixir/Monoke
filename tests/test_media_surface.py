@@ -178,7 +178,10 @@ def test_creator_page_reports_and_links_media(client, conn):
     assert "<dt>Images</dt><dd><a href=\"/c/1?media=image\">1</a></dd>" in body
     assert "<dt>GIFs</dt><dd><a href=\"/c/1?media=gif\">1</a></dd>" in body
     assert "Direct links" in body
-    assert 'href="/c/1/gallery?kind=video"' in body
+    assert 'href="/c/1/gallery"' in body
+    assert ">Gallery<" in body
+    # T7.7: the separate Videos header shortcut is gone; the gallery owns kind.
+    assert 'href="/c/1/gallery?kind=video"' not in body
     assert '<option value="video"' in body
 
 
@@ -326,4 +329,5 @@ def test_gallery_without_tags_hides_the_select_and_explains(client, conn):
 
     assert 'name="tag"' not in body
     assert "No tags provided by cum.st for this creator" in body
-    assert 'name="kind"' in body
+    assert 'aria-label="Media type"' in body
+    assert "All media" in body

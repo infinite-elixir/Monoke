@@ -4,6 +4,113 @@
 {% set qs = filters.query_string() %}
 {% set current_url = "/bookmarks" ~ (("?" ~ qs) if qs else "") %}
 
+{% macro bookmark_post_card(post, current_url) %}
+  <article class="bookmark-card"
+           data-bookmark-post-card
+           data-post-service-id="{{ post.service_id }}">
+    <a class="post-thumb" href="{{ post.post_url }}" tabindex="-1" aria-hidden="true">
+      {% if post.thumb_url %}
+        <img class="thumb" src="{{ post.thumb_url }}" alt="" loading="lazy" decoding="async">
+      {% else %}
+        <span class="thumb-placeholder">{{ (post.title or "?")[0]|upper }}</span>
+      {% endif %}
+    </a>
+    <div class="bookmark-card-body">
+      <h3 class="post-title"><a href="{{ post.post_url }}">{{ post.title or "(untitled post)" }}</a></h3>
+      <p class="bookmark-facts">
+        <a href="{{ post.creator_url }}">{{ post.creator_name }}</a>
+        <span class="muted">·</span>
+        <time datetime="{{ post.published|short_date }}">{{ post.published|short_date }}</time>
+        {% if post.missing_upstream %}
+          <span class="muted">·</span>
+          <span class="badge badge-dead">file unavailable</span>
+        {% endif %}
+      </p>
+      <p class="bookmark-when">Bookmarked {{ post.created_at|relative_time }}</p>
+      {{ bookmark_button(
+        "/c/" ~ post.creator_id ~ "/p/" ~ post.service_id ~ "/bookmark",
+        True,
+        current_url,
+        "post",
+        post.title or "(untitled post)",
+        compact=True
+      ) }}
+    </div>
+  </article>
+{% endmacro %}
+
+{% macro bookmark_media_tile(item, current_url) %}
+  {% set overlay_ready = item.post_service_id and item.sha256 %}
+  <figure class="gallery-tile bookmark-media-tile{% if item.missing %} is-missing{% endif %}"
+          data-bookmark-media
+          data-sha256="{{ item.sha256 }}">
+    {% if item.missing %}
+      {% if overlay_ready %}
+        <a class="gallery-thumb bookmark-missing-placeholder"
+           id="bookmark-media-{{ item.bookmark_id }}"
+           href="{{ item.post_url }}"
+           data-lightbox-open
+           data-missing
+           data-creator-id="{{ item.creator_id }}"
+           data-post-service-id="{{ item.post_service_id }}"
+           data-sha256="{{ item.sha256 }}"
+           data-kind="{{ item.kind or 'file' }}"
+           data-title="{{ item.post_title or item.filename }}"
+           data-post-url="{{ item.post_url }}"
+           aria-label="Open unavailable media for {{ item.filename }}">
+          No longer attached
+        </a>
+      {% else %}
+        <span class="bookmark-missing-placeholder"
+              id="bookmark-media-{{ item.bookmark_id }}">No longer attached</span>
+      {% endif %}
+    {% else %}
+      <a class="gallery-thumb"
+         id="bookmark-media-{{ item.bookmark_id }}"
+         href="{{ item.post_url }}"
+         data-lightbox-open
+         data-creator-id="{{ item.creator_id }}"
+         data-post-service-id="{{ item.post_service_id }}"
+         data-sha256="{{ item.sha256 }}"
+         data-kind="{{ item.kind }}"
+         data-full="{{ item.url }}"
+         data-thumb="{{ item.thumb_url or '' }}"
+         data-title="{{ item.post_title or item.filename }}"
+         data-post-url="{{ item.post_url }}"
+         aria-label="Open {{ 'video' if item.is_video else ('GIF' if item.is_gif else 'image') }} {{ item.filename }}{% if item.duration_ms and item.is_video %} ({{ item.duration_ms|human_duration }}){% endif %}">
+        {% if item.thumb_url %}
+          <img class="thumb" src="{{ item.thumb_url }}" alt="" loading="lazy" decoding="async">
+        {% else %}
+          <span class="thumb-placeholder">{{ item.filename[0]|upper }}</span>
+        {% endif %}
+        {% if item.kind_label %}
+          <span class="gallery-badge">{{ item.kind_label }}</span>
+        {% endif %}
+        {% if item.duration_ms and item.is_video %}
+          <span class="gallery-badge gallery-duration">{{ item.duration_ms|human_duration }}</span>
+        {% endif %}
+      </a>
+    {% endif %}
+    {{ bookmark_button(
+      "/c/" ~ item.creator_id ~ "/media/" ~ item.sha256 ~ "/bookmark",
+      True,
+      current_url,
+      "video" if item.is_video else ("gif" if item.is_gif else "image"),
+      item.filename,
+      compact=True,
+      extra_class="gallery-bookmark"
+    ) }}
+    <figcaption class="gallery-meta">
+      <a class="gallery-title" href="{{ item.post_url }}">{{ item.post_title or "Untitled post" }}</a>
+      <span class="gallery-facts">
+        <a href="{{ item.creator_url }}">{{ item.creator_name }}</a>
+        {% if item.dimensions %} · {{ item.dimensions }}{% endif %}
+        <span class="bookmark-when">Bookmarked {{ item.created_at|relative_time }}</span>
+      </span>
+    </figcaption>
+  </figure>
+{% endmacro %}
+
 {% block title %}Bookmarks · Monoke{% endblock %}
 
 {% block content %}
@@ -65,12 +172,45 @@
     <section class="empty-state">
       <h2>No bookmarks yet</h2>
       <p>
-        Bookmark a post with the <strong>Bookmark</strong> button on its row or
-        page, and bookmark an image or video from a post page, a gallery tile
-        or the fullscreen viewer.
+        Bookmark a post with the <strong>bookmark icon</strong> on its row or
+        page, and bookmark an image, GIF or video with the bookmark icon on a
+        post page, a gallery tile or the fullscreen viewer.
       </p>
       <a class="button button-primary" href="/">Browse creators</a>
     </section>
+  {% elif is_overview %}
+    {% if not sections %}
+      <section class="empty-state">
+        <h2>No {{ view_label|lower }} bookmarks in this view</h2>
+        <p>Nothing here matches the current tab.</p>
+        <a class="button button-primary" href="{{ ref_url }}">Show all bookmarks</a>
+      </section>
+    {% else %}
+      <div class="bookmark-creators">
+        {% for section in sections %}
+          <section class="bookmark-section bookmark-creator-section"
+                   aria-labelledby="bookmark-creator-{{ section.creator_id }}">
+            <div class="section-heading">
+              <h2 id="bookmark-creator-{{ section.creator_id }}">
+                <a href="{{ section.creator_url }}">{{ section.creator_name }}</a>
+                <span class="muted">{{ section.total }}</span>
+              </h2>
+              <a class="button button-small" href="{{ section.view_all_url }}">View all {{ section.total }} bookmarks</a>
+            </div>
+
+            <div class="bookmark-preview{% if view != 'media' %} bookmark-post-list{% endif %}{% if view != 'posts' %} bookmark-media-grid{% endif %}">
+              {% for item in section.preview %}
+                {% if item.kind == "post" %}
+                  {{ bookmark_post_card(item, current_url) }}
+                {% else %}
+                  {{ bookmark_media_tile(item, current_url) }}
+                {% endif %}
+              {% endfor %}
+            </div>
+          </section>
+        {% endfor %}
+      </div>
+    {% endif %}
   {% elif total == 0 %}
     <section class="empty-state">
       <h2>No {{ view_label|lower }} bookmarks in this view</h2>
@@ -89,36 +229,7 @@
 
         <div class="bookmark-post-list">
           {% for post in posts %}
-            <article class="bookmark-card">
-              <a class="post-thumb" href="{{ post.post_url }}" tabindex="-1" aria-hidden="true">
-                {% if post.thumb_url %}
-                  <img class="thumb" src="{{ post.thumb_url }}" alt="" loading="lazy" decoding="async">
-                {% else %}
-                  <span class="thumb-placeholder">{{ (post.title or "?")[0]|upper }}</span>
-                {% endif %}
-              </a>
-              <div class="bookmark-card-body">
-                <h3 class="post-title"><a href="{{ post.post_url }}">{{ post.title or "(untitled post)" }}</a></h3>
-                <p class="bookmark-facts">
-                  <a href="{{ post.creator_url }}">{{ post.creator_name }}</a>
-                  <span class="muted">·</span>
-                  <time datetime="{{ post.published|short_date }}">{{ post.published|short_date }}</time>
-                  {% if post.missing_upstream %}
-                    <span class="muted">·</span>
-                    <span class="badge badge-dead">file unavailable</span>
-                  {% endif %}
-                </p>
-                <p class="bookmark-when">Bookmarked {{ post.created_at|relative_time }}</p>
-                {{ bookmark_button(
-                  "/c/" ~ post.creator_id ~ "/p/" ~ post.service_id ~ "/bookmark",
-                  True,
-                  current_url,
-                  "post",
-                  post.title or "(untitled post)",
-                  compact=True
-                ) }}
-              </div>
-            </article>
+            {{ bookmark_post_card(post, current_url) }}
           {% endfor %}
         </div>
 
@@ -147,45 +258,7 @@
 
         <div class="gallery-grid bookmark-media-grid">
           {% for item in media %}
-            <figure class="gallery-tile bookmark-media-tile{% if item.missing %} is-missing{% endif %}">
-              {% if item.missing %}
-                <span class="bookmark-missing-placeholder">No longer attached</span>
-              {% else %}
-                <a class="gallery-thumb"
-                   href="{{ item.url }}"
-                   target="_blank" rel="noopener noreferrer"
-                   aria-label="Open {{ item.filename }}">
-                  {% if item.thumb_url %}
-                    <img class="thumb" src="{{ item.thumb_url }}" alt="" loading="lazy" decoding="async">
-                  {% else %}
-                    <span class="thumb-placeholder">{{ item.filename[0]|upper }}</span>
-                  {% endif %}
-                  {% if item.kind_label %}
-                    <span class="gallery-badge">{{ item.kind_label }}</span>
-                  {% endif %}
-                  {% if item.duration_ms and item.is_video %}
-                    <span class="gallery-badge gallery-duration">{{ item.duration_ms|human_duration }}</span>
-                  {% endif %}
-                </a>
-              {% endif %}
-              {{ bookmark_button(
-                "/c/" ~ item.creator_id ~ "/media/" ~ item.sha256 ~ "/bookmark",
-                True,
-                current_url,
-                "video" if item.is_video else ("gif" if item.is_gif else "image"),
-                item.filename,
-                compact=True,
-                extra_class="gallery-bookmark"
-              ) }}
-              <figcaption class="gallery-meta">
-                <a class="gallery-title" href="{{ item.post_url }}">{{ item.post_title or "Untitled post" }}</a>
-                <span class="gallery-facts">
-                  <a href="{{ item.creator_url }}">{{ item.creator_name }}</a>
-                  {% if item.dimensions %} · {{ item.dimensions }}{% endif %}
-                  <span class="bookmark-when">Bookmarked {{ item.created_at|relative_time }}</span>
-                </span>
-              </figcaption>
-            </figure>
+            {{ bookmark_media_tile(item, current_url) }}
           {% endfor %}
         </div>
 
@@ -203,4 +276,11 @@
       </section>
     {% endif %}
   {% endif %}
+
+  {% set bookmark_next = current_url %}
+  {% include "partials/lightbox.html" %}
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ asset('lightbox.js') }}" defer></script>
 {% endblock %}

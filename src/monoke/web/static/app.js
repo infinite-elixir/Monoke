@@ -136,7 +136,7 @@
         var on = Boolean(data && data.bookmarked);
         button.setAttribute("aria-pressed", on ? "true" : "false");
         button.classList.toggle("is-bookmarked", on);
-        button.textContent = on ? "Bookmarked" : "Bookmark";
+        button.setAttribute("title", on ? "Remove bookmark" : "Bookmark");
       })
       .catch(function () {
         showFlash("Could not update the bookmark.", "error");
@@ -228,142 +228,58 @@
     button.textContent = "Loaded";
   }
 
-  // --------------------------------------------------------------------- //
-  // Gallery lightbox (T4.7)
-  //
-  // Tiles are plain links to the full image, so they still work without
-  // JavaScript. With JavaScript, the click is intercepted and the image is
-  // only fetched at that point: no full-size request on page load, and the
-  // src is removed again on close.
-  // --------------------------------------------------------------------- //
+  // Gallery tile opens and the merged lightbox/viewer live in lightbox.js
+  // (T11.1). This file keeps the shell behaviour and the tile action menus.
 
-  var galleryState = null;
-
-  function gallerySetup() {
-    var box = document.getElementById("gallery-lightbox");
-    if (!box) {
-      return null;
-    }
-    return {
-      box: box,
-      image: box.querySelector("[data-lightbox-image]"),
-      video: box.querySelector("[data-lightbox-video]"),
-      title: box.querySelector("[data-lightbox-title]"),
-      counter: box.querySelector("[data-lightbox-counter]"),
-      post: box.querySelector("[data-lightbox-post]"),
-      original: box.querySelector("[data-lightbox-original]"),
-      prev: box.querySelector("[data-lightbox-prev]"),
-      next: box.querySelector("[data-lightbox-next]"),
-      close: box.querySelector("[data-lightbox-close]"),
-      items: [],
-      index: 0,
-      lastFocus: null
-    };
-  }
-
-  function galleryShow(index) {
-    var state = galleryState;
-    if (!state || !state.items.length) {
-      return;
-    }
-    state.index = index;
-    var item = state.items[index];
-    var full = item.getAttribute("data-full") || item.getAttribute("href") || "";
-    var title = item.getAttribute("data-title") || "";
-    var isVideo = item.getAttribute("data-kind") === "video";
-
-    if (isVideo) {
-      state.image.hidden = true;
-      state.image.removeAttribute("src");
-      if (state.video) {
-        if (state.video.getAttribute("src") !== full) {
-          state.video.setAttribute("src", full);
-        }
-        state.video.hidden = false;
-        state.video.load();
+  // Gallery tile action menus (T4.8). A native <details> handles open/close
+  // and keyboard use; this only closes the others and supports Escape.
+  function galleryMenusClose(except) {
+    var menus = document.querySelectorAll("[data-gallery-menu][open]");
+    Array.prototype.forEach.call(menus, function (menu) {
+      if (menu !== except) {
+        menu.open = false;
       }
-    } else {
-      if (state.video) {
-        state.video.pause();
-        state.video.removeAttribute("src");
-        state.video.hidden = true;
+    });
+  }
+
+  document.addEventListener(
+    "toggle",
+    function (event) {
+      var menu = event.target;
+      if (
+        menu &&
+        menu.matches &&
+        menu.matches("[data-gallery-menu]") &&
+        menu.open
+      ) {
+        galleryMenusClose(menu);
       }
-      state.image.hidden = false;
-      if (state.image.getAttribute("src") !== full) {
-        state.image.setAttribute("src", full);
-      }
-      state.image.setAttribute("alt", title);
-    }
+    },
+    true
+  );
 
-    setText(state.title, title);
-    setText(state.counter, index + 1 + " / " + state.items.length);
-    if (state.post) {
-      state.post.setAttribute("href", item.getAttribute("data-post-url") || "#");
-    }
-    if (state.original) {
-      state.original.setAttribute("href", full);
-    }
-    if (state.prev) {
-      state.prev.disabled = index === 0;
-    }
-    if (state.next) {
-      state.next.disabled = index === state.items.length - 1;
-    }
-  }
-
-  function galleryOpen(item) {
-    if (!galleryState) {
-      galleryState = gallerySetup();
-    }
-    var state = galleryState;
-    if (!state) {
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") {
       return;
     }
-    var grid = item.closest("[data-gallery]");
-    state.items = grid
-      ? Array.prototype.slice.call(grid.querySelectorAll("[data-gallery-item]"))
-      : [item];
-    state.lastFocus = item;
-    state.box.hidden = false;
-    document.body.classList.add("lightbox-open");
-    galleryShow(Math.max(0, state.items.indexOf(item)));
-    if (state.close) {
-      state.close.focus();
+    var menu = document.querySelector("[data-gallery-menu][open]");
+    if (!menu) {
+      return;
     }
-  }
+    var summary = menu.querySelector("summary");
+    menu.open = false;
+    if (summary && summary.focus) {
+      summary.focus();
+    }
+  });
 
-  function galleryClose() {
-    var state = galleryState;
-    if (!state) {
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (target && target.closest && target.closest("[data-gallery-menu]")) {
       return;
     }
-    state.box.hidden = true;
-    state.image.removeAttribute("src");
-    state.image.hidden = false;
-    if (state.video) {
-      state.video.pause();
-      state.video.removeAttribute("src");
-      state.video.hidden = true;
-    }
-    document.body.classList.remove("lightbox-open");
-    state.items = [];
-    state.index = 0;
-    if (state.lastFocus && state.lastFocus.focus) {
-      state.lastFocus.focus();
-    }
-  }
-
-  function galleryStep(delta) {
-    var state = galleryState;
-    if (!state || state.box.hidden) {
-      return;
-    }
-    var next = state.index + delta;
-    if (next < 0 || next >= state.items.length) {
-      return;
-    }
-    galleryShow(next);
-  }
+    galleryMenusClose(null);
+  });
 
   async function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) {
@@ -1068,45 +984,6 @@
         return;
       }
 
-      var galleryItem = event.target.closest("[data-gallery-item]");
-      if (galleryItem) {
-        if (
-          event.button === 0 &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.shiftKey &&
-          !event.altKey
-        ) {
-          event.preventDefault();
-          galleryOpen(galleryItem);
-        }
-        return;
-      }
-
-      if (event.target.closest("[data-lightbox-close]")) {
-        event.preventDefault();
-        galleryClose();
-        return;
-      }
-
-      if (event.target.closest("[data-lightbox-prev]")) {
-        event.preventDefault();
-        galleryStep(-1);
-        return;
-      }
-
-      if (event.target.closest("[data-lightbox-next]")) {
-        event.preventDefault();
-        galleryStep(1);
-        return;
-      }
-
-      var lightbox = document.getElementById("gallery-lightbox");
-      if (lightbox && event.target === lightbox) {
-        galleryClose();
-        return;
-      }
-
       var copyAllButton = event.target.closest("[data-copy-all]");
       if (copyAllButton) {
         event.preventDefault();
@@ -1159,27 +1036,6 @@
         .catch(function () {
           showFlash("Could not copy to the clipboard.", "error");
         });
-    });
-
-    document.addEventListener("keydown", function (event) {
-      var state = galleryState;
-      if (!state || state.box.hidden) {
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        galleryClose();
-        return;
-      }
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        galleryStep(-1);
-        return;
-      }
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        galleryStep(1);
-      }
     });
 
     document.addEventListener("submit", function (event) {
@@ -1281,48 +1137,6 @@
 
   document.addEventListener("htmx:responseError", function () {
     showFlash("The request failed. Check the server log and try again.", "error");
-  });
-
-  // Return focus where the viewer was opened from. viewer.js stores the
-  // selector in sessionStorage just before navigating back (T8.4).
-  function restoreViewerFocus() {
-    var selector = null;
-    try {
-      selector = window.sessionStorage.getItem("monoke-viewer-focus");
-      window.sessionStorage.removeItem("monoke-viewer-focus");
-    } catch (_error) {
-      return;
-    }
-    if (!selector) {
-      return;
-    }
-    var target = document.querySelector(selector);
-    if (target && typeof target.focus === "function") {
-      target.focus({ preventScroll: false });
-    }
-  }
-
-  restoreViewerFocus();
-
-  // Remember which link opened the viewer so the viewer can hand focus back
-  // on close (T8.4). sessionStorage survives the navigation, localStorage does
-  // not belong here.
-  document.addEventListener("click", function (event) {
-    var target = event.target;
-    var link = target && target.closest
-      ? target.closest("[data-viewer-open], [data-viewer-return]")
-      : null;
-    if (!link) {
-      return;
-    }
-    var selector = link.hasAttribute("data-viewer-open")
-      ? "[data-viewer-open]"
-      : "[data-viewer-return]";
-    try {
-      window.sessionStorage.setItem("monoke-viewer-opener", selector);
-    } catch (_error) {
-      /* Storage disabled: focus falls back to the creator heading. */
-    }
   });
 
   window.Monoke = {
