@@ -20,12 +20,14 @@ that streams the file into your browser on demand.
   array is unreliable, so Monoke extracts from the caption HTML itself.
 - **Post browser** — full-text search, category, media-kind, tag, date, link and
   availability filters. Filters are real URLs, so they can be bookmarked or shared.
-- **Per-creator gallery** — image, GIF and video grid with orientation, size, kind and
-  date filters; duration sorting for timed media.
+- **Per-creator gallery** — posts grouped into sections, each with its images, GIFs and
+  videos in viewer order; orientation, size, kind and date filters plus duration sorting
+  for timed media. Pagination counts posts.
 - **Fullscreen viewer** — keyboard, wheel and touch navigation across media and posts,
-  fullscreen mode, media bookmarks and an optional first-run hint.
-- **Local bookmarks** — save posts and individual media items; they survive re-syncs and
-  are independent of cum.st.
+  fullscreen mode, media bookmarks and an optional first-run hint. Any gallery tile
+  opens the viewer at that exact item.
+- **Local bookmarks** — save posts and individual media items with an icon-only control;
+  they survive re-syncs and are independent of cum.st.
 - **Link explorer and exports** — browse every link across creators, group or flatten,
   then export the current selection as CSV or JSON.
 - **Live sync progress** — page and post counts stream over SSE, with a Cancel button;

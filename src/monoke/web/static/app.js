@@ -136,7 +136,7 @@
         var on = Boolean(data && data.bookmarked);
         button.setAttribute("aria-pressed", on ? "true" : "false");
         button.classList.toggle("is-bookmarked", on);
-        button.textContent = on ? "Bookmarked" : "Bookmark";
+        button.setAttribute("title", on ? "Remove bookmark" : "Bookmark");
       })
       .catch(function () {
         showFlash("Could not update the bookmark.", "error");
@@ -229,141 +229,9 @@
   }
 
   // --------------------------------------------------------------------- //
-  // Gallery lightbox (T4.7)
-  //
-  // Tiles are plain links to the full image, so they still work without
-  // JavaScript. With JavaScript, the click is intercepted and the image is
-  // only fetched at that point: no full-size request on page load, and the
-  // src is removed again on close.
+  // Gallery tiles are plain links to the fullscreen viewer (T4.10).
+  // No lightbox or full-size fetch happens on page load.
   // --------------------------------------------------------------------- //
-
-  var galleryState = null;
-
-  function gallerySetup() {
-    var box = document.getElementById("gallery-lightbox");
-    if (!box) {
-      return null;
-    }
-    return {
-      box: box,
-      image: box.querySelector("[data-lightbox-image]"),
-      video: box.querySelector("[data-lightbox-video]"),
-      title: box.querySelector("[data-lightbox-title]"),
-      counter: box.querySelector("[data-lightbox-counter]"),
-      post: box.querySelector("[data-lightbox-post]"),
-      original: box.querySelector("[data-lightbox-original]"),
-      prev: box.querySelector("[data-lightbox-prev]"),
-      next: box.querySelector("[data-lightbox-next]"),
-      close: box.querySelector("[data-lightbox-close]"),
-      items: [],
-      index: 0,
-      lastFocus: null
-    };
-  }
-
-  function galleryShow(index) {
-    var state = galleryState;
-    if (!state || !state.items.length) {
-      return;
-    }
-    state.index = index;
-    var item = state.items[index];
-    var full = item.getAttribute("data-full") || item.getAttribute("href") || "";
-    var title = item.getAttribute("data-title") || "";
-    var isVideo = item.getAttribute("data-kind") === "video";
-
-    if (isVideo) {
-      state.image.hidden = true;
-      state.image.removeAttribute("src");
-      if (state.video) {
-        if (state.video.getAttribute("src") !== full) {
-          state.video.setAttribute("src", full);
-        }
-        state.video.hidden = false;
-        state.video.load();
-      }
-    } else {
-      if (state.video) {
-        state.video.pause();
-        state.video.removeAttribute("src");
-        state.video.hidden = true;
-      }
-      state.image.hidden = false;
-      if (state.image.getAttribute("src") !== full) {
-        state.image.setAttribute("src", full);
-      }
-      state.image.setAttribute("alt", title);
-    }
-
-    setText(state.title, title);
-    setText(state.counter, index + 1 + " / " + state.items.length);
-    if (state.post) {
-      state.post.setAttribute("href", item.getAttribute("data-post-url") || "#");
-    }
-    if (state.original) {
-      state.original.setAttribute("href", full);
-    }
-    if (state.prev) {
-      state.prev.disabled = index === 0;
-    }
-    if (state.next) {
-      state.next.disabled = index === state.items.length - 1;
-    }
-  }
-
-  function galleryOpen(item) {
-    if (!galleryState) {
-      galleryState = gallerySetup();
-    }
-    var state = galleryState;
-    if (!state) {
-      return;
-    }
-    var grid = item.closest("[data-gallery]");
-    state.items = grid
-      ? Array.prototype.slice.call(grid.querySelectorAll("[data-gallery-item]"))
-      : [item];
-    state.lastFocus = item;
-    state.box.hidden = false;
-    document.body.classList.add("lightbox-open");
-    galleryShow(Math.max(0, state.items.indexOf(item)));
-    if (state.close) {
-      state.close.focus();
-    }
-  }
-
-  function galleryClose() {
-    var state = galleryState;
-    if (!state) {
-      return;
-    }
-    state.box.hidden = true;
-    state.image.removeAttribute("src");
-    state.image.hidden = false;
-    if (state.video) {
-      state.video.pause();
-      state.video.removeAttribute("src");
-      state.video.hidden = true;
-    }
-    document.body.classList.remove("lightbox-open");
-    state.items = [];
-    state.index = 0;
-    if (state.lastFocus && state.lastFocus.focus) {
-      state.lastFocus.focus();
-    }
-  }
-
-  function galleryStep(delta) {
-    var state = galleryState;
-    if (!state || state.box.hidden) {
-      return;
-    }
-    var next = state.index + delta;
-    if (next < 0 || next >= state.items.length) {
-      return;
-    }
-    galleryShow(next);
-  }
 
   async function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) {
@@ -1068,45 +936,6 @@
         return;
       }
 
-      var galleryItem = event.target.closest("[data-gallery-item]");
-      if (galleryItem) {
-        if (
-          event.button === 0 &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.shiftKey &&
-          !event.altKey
-        ) {
-          event.preventDefault();
-          galleryOpen(galleryItem);
-        }
-        return;
-      }
-
-      if (event.target.closest("[data-lightbox-close]")) {
-        event.preventDefault();
-        galleryClose();
-        return;
-      }
-
-      if (event.target.closest("[data-lightbox-prev]")) {
-        event.preventDefault();
-        galleryStep(-1);
-        return;
-      }
-
-      if (event.target.closest("[data-lightbox-next]")) {
-        event.preventDefault();
-        galleryStep(1);
-        return;
-      }
-
-      var lightbox = document.getElementById("gallery-lightbox");
-      if (lightbox && event.target === lightbox) {
-        galleryClose();
-        return;
-      }
-
       var copyAllButton = event.target.closest("[data-copy-all]");
       if (copyAllButton) {
         event.preventDefault();
@@ -1159,27 +988,6 @@
         .catch(function () {
           showFlash("Could not copy to the clipboard.", "error");
         });
-    });
-
-    document.addEventListener("keydown", function (event) {
-      var state = galleryState;
-      if (!state || state.box.hidden) {
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        galleryClose();
-        return;
-      }
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        galleryStep(-1);
-        return;
-      }
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        galleryStep(1);
-      }
     });
 
     document.addEventListener("submit", function (event) {
@@ -1291,12 +1099,20 @@
       selector = window.sessionStorage.getItem("monoke-viewer-focus");
       window.sessionStorage.removeItem("monoke-viewer-focus");
     } catch (_error) {
-      return;
+      selector = null;
+    }
+    if (!selector && window.location.hash.length > 1) {
+      selector = window.location.hash;
     }
     if (!selector) {
       return;
     }
-    var target = document.querySelector(selector);
+    var target = null;
+    try {
+      target = document.querySelector(selector);
+    } catch (_error) {
+      return;
+    }
     if (target && typeof target.focus === "function") {
       target.focus({ preventScroll: false });
     }
@@ -1315,9 +1131,12 @@
     if (!link) {
       return;
     }
-    var selector = link.hasAttribute("data-viewer-open")
-      ? "[data-viewer-open]"
-      : "[data-viewer-return]";
+    var selector = link.getAttribute("data-viewer-focus");
+    if (!selector) {
+      selector = link.hasAttribute("data-viewer-open")
+        ? "[data-viewer-open]"
+        : "[data-viewer-return]";
+    }
     try {
       window.sessionStorage.setItem("monoke-viewer-opener", selector);
     } catch (_error) {

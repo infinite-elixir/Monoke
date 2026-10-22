@@ -10,13 +10,20 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 from typing import Any, Mapping
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 from ..extract.classify import Category
 
 PER_PAGE = 50
 LINKS_PER_PAGE = 100
 GALLERY_PER_PAGE = 60
+# The gallery groups media by post and pages by post (T4.11). The bookmarks
+# media grid keeps GALLERY_PER_PAGE.
+GALLERY_POSTS_PER_PAGE = 20
+
+# Unfiltered /bookmarks shows this many items per creator before its
+# "View all" link; the creator-filtered page is uncapped (T9.4).
+BOOKMARKS_PER_CREATOR_PREVIEW = 6
 
 # Sidebar/dropdown order. Post pages use their own priority order (below).
 CATEGORY_ORDER: tuple[str, ...] = (
@@ -371,17 +378,37 @@ class GalleryFilters:
 
     @classmethod
     def from_query(cls, params: Mapping[str, str]) -> "GalleryFilters":
+        raw_gf = params.get("gf")
+        merged: dict[str, str] = {}
+        if raw_gf:
+            try:
+                parsed_rows = parse_qs(str(raw_gf), keep_blank_values=True)
+                merged.update({name: values[0] for name, values in parsed_rows.items() if values})
+            except Exception:
+                merged = {}
+
+        for key in ("q", "tag", "kind", "orientation", "min_bytes", "from", "to", "sort", "page"):
+            if params.get(key) is None:
+                continue
+            value = str(params.get(key))
+            # Viewer URLs carry `from=gallery`, which is not a date. When a
+            # context token is present, do not let that origin flag erase the
+            # token's real date range (T8.19). A top-level date still wins.
+            if raw_gf and key in {"from", "to"} and parse_date(value) is None:
+                continue
+            merged[key] = value
+
         try:
-            page = int(params.get("page") or 1)
+            page = int(merged.get("page") or 1)
         except (TypeError, ValueError):
             page = 1
 
-        orientation = _text(params.get("orientation"))
+        orientation = _text(merged.get("orientation"))
         if orientation not in GALLERY_ORIENTATIONS:
             orientation = None
 
         min_bytes = None
-        raw_bytes = _text(params.get("min_bytes"))
+        raw_bytes = _text(merged.get("min_bytes"))
         if raw_bytes:
             try:
                 parsed = int(raw_bytes)
@@ -390,20 +417,20 @@ class GalleryFilters:
             min_bytes = parsed if parsed > 0 else None
 
         return cls(
-            q=_text(params.get("q")),
-            tag=_text(params.get("tag")),
-            kind=_gallery_kind(params.get("kind")),
+            q=_text(merged.get("q")),
+            tag=_text(merged.get("tag")),
+            kind=_gallery_kind(merged.get("kind")),
             orientation=orientation,
             min_bytes=min_bytes,
-            date_from=parse_date(params.get("from")),
-            date_to=parse_date(params.get("to"), end_of_day=True),
-            sort=_gallery_sort(params.get("sort")),
+            date_from=parse_date(merged.get("from")),
+            date_to=parse_date(merged.get("to"), end_of_day=True),
+            sort=_gallery_sort(merged.get("sort")),
             page=max(1, page),
         )
 
     @property
     def offset(self) -> int:
-        return (self.page - 1) * GALLERY_PER_PAGE
+        return (self.page - 1) * GALLERY_POSTS_PER_PAGE
 
     @property
     def active(self) -> bool:
@@ -429,7 +456,7 @@ class GalleryFilters:
             "date_from": self.date_from,
             "date_to": self.date_to,
             "sort": self.sort,
-            "limit": GALLERY_PER_PAGE,
+            "limit": GALLERY_POSTS_PER_PAGE,
             "offset": self.offset,
         }
 
@@ -471,6 +498,14 @@ class GalleryFilters:
         if self.page > 1:
             pairs.append(("page", str(self.page)))
         return pairs
+
+    @property
+    def context_pairs(self) -> list[tuple[str, str]]:
+        return [(key, value) for key, value in self.pairs() if key != "page"]
+
+    @property
+    def context_query(self) -> str:
+        return urlencode(self.context_pairs)
 
     def query_string(self, **overrides: Any) -> str:
         filters = self.with_changes(**overrides) if overrides else self

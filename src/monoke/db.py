@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from .config import Settings, get_settings
 from .cumst.media import classify_media_kind
@@ -1134,6 +1135,291 @@ def list_media_bookmarks(
     return result, total
 
 
+def bookmark_overview(
+    conn: sqlite3.Connection,
+    *,
+    view: str = "all",
+    preview_limit: int = 6,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Creator sections for the unfiltered bookmark library (T9.4).
+
+    Two windowed queries (posts and media) fetch at most ``preview_limit`` rows
+    per creator each, so the number of queries is independent of the number of
+    creators. The merged items are re-trimmed to ``preview_limit`` in Python.
+    """
+    if view not in {"all", "posts", "media"}:
+        view = "all"
+    try:
+        limit = max(1, int(preview_limit))
+    except (TypeError, ValueError):
+        limit = 6
+
+    post_rows = _rows(
+        conn.execute(
+            f"""
+            SELECT * FROM (
+              SELECT pb.id AS bookmark_id,
+                     pb.created_at AS created_at,
+                     pb.creator_id AS creator_id,
+                     {_CREATOR_NAME_SQL} AS creator_name,
+                     p.id AS post_id,
+                     p.service_id AS service_id,
+                     p.service_id AS post_service_id,
+                     p.service AS service,
+                     p.title AS title,
+                     p.published AS published,
+                     p.missing_upstream AS missing_upstream,
+                     (SELECT f.thumb_url FROM files f
+                        WHERE f.post_id = p.id AND f.thumb_url IS NOT NULL
+                        ORDER BY COALESCE(f.position, 0), f.id LIMIT 1) AS thumb_url,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY pb.creator_id
+                       ORDER BY pb.created_at DESC, pb.id DESC
+                     ) AS item_rank,
+                     COUNT(*) OVER (PARTITION BY pb.creator_id) AS creator_total
+              FROM post_bookmarks pb
+              JOIN posts p ON p.id = pb.post_id
+              JOIN creators c ON c.id = pb.creator_id
+            ) WHERE item_rank <= ?
+            ORDER BY created_at DESC, bookmark_id DESC
+            """,
+            (limit,),
+        ).fetchall()
+    )
+    media_rows = _rows(
+        conn.execute(
+            f"""
+            SELECT * FROM (
+              SELECT mb.id AS bookmark_id,
+                     mb.sha256 AS sha256,
+                     mb.created_at AS created_at,
+                     mb.creator_id AS creator_id,
+                     {_CREATOR_NAME_SQL} AS creator_name,
+                     f.id AS file_id,
+                     f.post_id AS post_id,
+                     p.service_id AS post_service_id,
+                     p.title AS post_title,
+                     f.kind AS kind,
+                     f.mime_type AS mime_type,
+                     f.url AS url,
+                     f.thumb_url AS thumb_url,
+                     f.width AS width,
+                     f.height AS height,
+                     f.duration_ms AS duration_ms,
+                     f.bytes AS bytes,
+                     f.original_filename AS original_filename,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY mb.creator_id
+                       ORDER BY mb.created_at DESC, mb.id DESC
+                     ) AS item_rank,
+                     COUNT(*) OVER (PARTITION BY mb.creator_id) AS creator_total
+              FROM media_bookmarks mb
+              JOIN creators c ON c.id = mb.creator_id
+              LEFT JOIN files f ON f.id = (
+                SELECT f2.id
+                FROM files f2
+                JOIN posts p2 ON p2.id = f2.post_id
+                WHERE p2.creator_id = mb.creator_id AND f2.sha256 = mb.sha256
+                ORDER BY f2.id
+                LIMIT 1
+              )
+              LEFT JOIN posts p ON p.id = f.post_id
+            ) WHERE item_rank <= ?
+            ORDER BY created_at DESC, bookmark_id DESC
+            """,
+            (limit,),
+        ).fetchall()
+    )
+
+    for row in post_rows:
+        row["kind"] = "post"
+    for row in media_rows:
+        row["kind"] = "media"
+        row["missing"] = 1 if not row.get("url") else 0
+        if row["missing"]:
+            row["url"] = None
+            row["thumb_url"] = None
+
+    post_totals = {int(row["creator_id"]): int(row["creator_total"]) for row in post_rows}
+    media_totals = {int(row["creator_id"]): int(row["creator_total"]) for row in media_rows}
+    post_creators = set(post_totals)
+    media_creators = set(media_totals)
+    totals = {
+        "posts": sum(post_totals.values()),
+        "media": sum(media_totals.values()),
+        "all": sum(post_totals.values()) + sum(media_totals.values()),
+    }
+
+    items: dict[int, list[dict[str, Any]]] = {}
+    names: dict[int, str] = {}
+    if view in {"all", "posts"}:
+        for row in post_rows:
+            creator_id = int(row["creator_id"])
+            names[creator_id] = row.get("creator_name")
+            items.setdefault(creator_id, []).append(row)
+    if view in {"all", "media"}:
+        for row in media_rows:
+            creator_id = int(row["creator_id"])
+            names[creator_id] = row.get("creator_name")
+            items.setdefault(creator_id, []).append(row)
+
+    sections: list[dict[str, Any]] = []
+    for creator_id, rows in items.items():
+        rows.sort(
+            key=lambda row: (
+                str(row.get("created_at") or ""),
+                str(row.get("kind") or ""),
+                int(row.get("bookmark_id") or 0),
+            ),
+            reverse=True,
+        )
+        if view == "all":
+            total = post_totals.get(creator_id, 0) + media_totals.get(creator_id, 0)
+        elif view == "posts":
+            total = post_totals.get(creator_id, 0)
+        else:
+            total = media_totals.get(creator_id, 0)
+        sections.append(
+            {
+                "creator_id": creator_id,
+                "creator_name": names.get(creator_id) or str(creator_id),
+                "total": total,
+                "preview": rows[:limit],
+            }
+        )
+
+    # Newest qualifying bookmark first; ties fall back to creator name then id.
+    sections.sort(
+        key=lambda section: (
+            (section.get("creator_name") or "").casefold(),
+            section["creator_id"],
+        )
+    )
+    sections.sort(
+        key=lambda section: str(section["preview"][0].get("created_at") or ""),
+        reverse=True,
+    )
+    return sections, totals
+
+
+def bookmark_viewer_state(
+    conn: sqlite3.Connection,
+    bookmark_id: int,
+    creator_id: int | None = None,
+) -> dict[str, Any] | None:
+    """Flat media playlist for the bookmark-only viewer (T9.4).
+
+    The playlist is every media bookmark in scope (one creator or the whole
+    library), newest bookmark first, excluding attachments that disappeared
+    upstream. The requested bookmark is the one exception: a stale link still
+    opens so the viewer can show its "Media unavailable" state. Unknown ids and
+    ids outside ``creator_id`` return ``None``.
+    """
+    try:
+        requested_id = int(bookmark_id)
+    except (TypeError, ValueError):
+        return None
+    scope = int(creator_id) if creator_id is not None else None
+
+    where = ""
+    params: list[Any] = []
+    if scope is not None:
+        where = "WHERE mb.creator_id = ?"
+        params.append(scope)
+
+    row = conn.execute(
+        f"SELECT id, creator_id FROM media_bookmarks mb {where} AND id = ?"
+        if where
+        else "SELECT id, creator_id FROM media_bookmarks mb WHERE id = ?",
+        [*params, requested_id],
+    ).fetchone()
+    if row is None:
+        return None
+    if scope is not None and int(row["creator_id"]) != scope:
+        return None
+
+    rows = _rows(
+        conn.execute(
+            f"""
+            SELECT mb.id AS bookmark_id,
+                   mb.sha256 AS sha256,
+                   mb.created_at AS created_at,
+                   mb.creator_id AS creator_id,
+                   {_CREATOR_NAME_SQL} AS creator_name,
+                   f.id AS file_id,
+                   f.post_id AS post_id,
+                   p.service_id AS post_service_id,
+                   p.title AS post_title,
+                   f.kind AS kind,
+                   f.mime_type AS mime_type,
+                   f.url AS url,
+                   f.thumb_url AS thumb_url,
+                   f.width AS width,
+                   f.height AS height,
+                   f.duration_ms AS duration_ms,
+                   f.bytes AS bytes,
+                   f.original_filename AS original_filename
+            FROM media_bookmarks mb
+            JOIN creators c ON c.id = mb.creator_id
+            LEFT JOIN files f ON f.id = (
+              SELECT f2.id
+              FROM files f2
+              JOIN posts p2 ON p2.id = f2.post_id
+              WHERE p2.creator_id = mb.creator_id AND f2.sha256 = mb.sha256
+              ORDER BY f2.id
+              LIMIT 1
+            )
+            LEFT JOIN posts p ON p.id = f.post_id
+            {where}
+            ORDER BY mb.created_at DESC, mb.id DESC
+            """,
+            params,
+        ).fetchall()
+    )
+
+    playlist: list[dict[str, Any]] = []
+    index = 0
+    for item in rows:
+        bookmark = int(item["bookmark_id"])
+        missing = not item.get("url")
+        if missing and bookmark != requested_id:
+            continue
+        item["missing"] = 1 if missing else 0
+        if missing:
+            item["url"] = None
+            item["thumb_url"] = None
+        item["bookmarked"] = True
+        item["viewer_index"] = len(playlist)
+        creator = int(item["creator_id"])
+        service_id = item.get("post_service_id")
+        item["creator_url"] = f"/c/{creator}"
+        item["post_url"] = (
+            f"/c/{creator}/p/{service_id}" if service_id else f"/c/{creator}"
+        )
+        extension = {
+            "video": "mp4",
+            "gif": "gif",
+            "image": "jpg",
+            "audio": "m4a",
+        }.get(str(item.get("kind") or ""), "bin")
+        item["filename"] = item.get("original_filename") or (
+            f"{(item.get('sha256') or 'media')[:12]}.{extension}"
+        )
+        item["is_video"] = item.get("kind") == "video"
+        item["is_gif"] = item.get("kind") == "gif"
+        if bookmark == requested_id:
+            index = len(playlist)
+        playlist.append(item)
+
+    if not playlist:
+        return None
+    return {
+        "mode": "bookmarks",
+        "media": playlist,
+        "index": index,
+    }
+
+
 def bookmark_creator_facets(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Creators that actually hold a bookmark, with per-kind totals."""
     rows = conn.execute(
@@ -1452,81 +1738,93 @@ def print_reclassify(*, dry_run: bool = False) -> int:
 VIEWER_KINDS: tuple[str, ...] = ("image", "gif", "video")
 GALLERY_KINDS: tuple[str, ...] = VIEWER_KINDS
 
+# Read-time kind normalization (T8.17). Ingested rows are usually correct, but
+# historical or re-synced rows can still store ``video`` on an image URL (or the
+# reverse). The viewer must not depend on that single historical value, so every
+# viewer/gallery query derives the effective kind from mime, filename, URL and
+# duration. This mirrors ``cumst.media.classify_media_kind`` without rewriting
+# the database (T7.1 owns ingestion normalization).
+_VIDEO_EXTS = ("mp4", "webm", "mov", "m4v")
+_AUDIO_EXTS = ("mp3", "m4a", "ogg", "wav", "opus")
+_STILL_EXTS = ("jpg", "jpeg", "png", "webp", "avif", "bmp")
+_GIF_EXTS = ("gif",)
+
+
+def _media_ext_sql(alias: str, extensions: tuple[str, ...]) -> str:
+    columns = (
+        f"lower(COALESCE({alias}.original_filename, ''))",
+        f"lower(COALESCE({alias}.url, ''))",
+        f"lower(COALESCE({alias}.variants_json, ''))",
+    )
+    clauses = [
+        f"{column} LIKE '%.{extension}%'"
+        for column in columns
+        for extension in extensions
+    ]
+    return "(" + " OR ".join(clauses) + ")"
+
+
+def _media_kind_expr(alias: str = "f") -> str:
+    """SQL expression for the effective media kind, aliased ``alias``.
+
+    This mirrors :func:`monoke.cumst.media.classify_media_kind` statement for
+    statement. The Python classifier is applied again when rows are read, and
+    the two must agree or a gallery ``kind`` filter would select rows the viewer
+    then re-labels (T8.17/T7.7).
+    """
+    return f"""CASE
+      WHEN lower(COALESCE({alias}.mime_type, '')) LIKE 'video/%'
+        OR {_media_ext_sql(alias, _VIDEO_EXTS)} THEN 'video'
+      WHEN COALESCE({alias}.duration_ms, 0) > 0
+        AND NOT {_media_ext_sql(alias, _STILL_EXTS)}
+        AND NOT {_media_ext_sql(alias, _GIF_EXTS)} THEN 'video'
+      WHEN lower(COALESCE({alias}.mime_type, '')) = 'image/gif'
+        AND lower(COALESCE({alias}.kind, '')) = 'gif'
+        AND {_media_ext_sql(alias, _GIF_EXTS)} THEN 'gif'
+      WHEN lower(COALESCE({alias}.mime_type, '')) LIKE 'image/%'
+        OR {_media_ext_sql(alias, _STILL_EXTS)}
+        OR {_media_ext_sql(alias, _GIF_EXTS)} THEN 'image'
+      WHEN lower(COALESCE({alias}.mime_type, '')) LIKE 'audio/%'
+        OR {_media_ext_sql(alias, _AUDIO_EXTS)} THEN 'audio'
+      ELSE lower(COALESCE({alias}.kind, 'file'))
+    END"""
+
 # T8.8: at most six still images from each adjacent post are exposed for the
 # viewer's cross-post preload window. GIFs/videos are excluded on purpose.
 NEIGHBOUR_PRELOAD_LIMIT = 6
 
-# Whitelisted ORDER BY fragments for the gallery (T7.6). Keys are validated in
-# the filter model and again here; user input never reaches the SQL string.
-# The rows are grouped by sha256, so the duration keys use aggregates to pick a
-# stable value when the same file is attached to several posts. A NULL or zero
-# duration counts as unknown and sorts after every timed video, whichever
-# direction is selected. Stills sink below timed media because a length order
-# is meaningless for them.
-_GALLERY_DURATION = (
-    "CASE WHEN max(f.duration_ms) IS NULL OR max(f.duration_ms) <= 0 "
-    "THEN NULL ELSE max(f.duration_ms) END"
+# Whitelisted post-level gallery sorts (T4.11). User input is validated in the
+# filter model and again here; it never reaches the SQL string. Duration sorts
+# rank posts by their longest/shortest *matching* timed video; posts without a
+# timed video sort last in both directions.
+GALLERY_POST_SORTS: tuple[str, ...] = (
+    "newest",
+    "oldest",
+    "duration_desc",
+    "duration_asc",
 )
-_GALLERY_IMAGE_LAST = "CASE WHEN max(f.kind) = 'image' THEN 1 ELSE 0 END"
-
-GALLERY_SORTS_DB: dict[str, str] = {
-    "newest": "published DESC, COALESCE(f.position, 0), f.id",
-    "oldest": "published ASC, COALESCE(f.position, 0), f.id",
-    "duration_desc": (
-        f"{_GALLERY_IMAGE_LAST}, {_GALLERY_DURATION} IS NULL, "
-        f"{_GALLERY_DURATION} DESC, published DESC, max(f.id) DESC"
-    ),
-    "duration_asc": (
-        f"{_GALLERY_IMAGE_LAST}, {_GALLERY_DURATION} IS NULL, "
-        f"{_GALLERY_DURATION} ASC, published DESC, max(f.id) DESC"
-    ),
-}
 
 
-def gallery_order_sql(sort: str) -> str:
-    """Return the whitelisted ORDER BY fragment for a gallery sort key."""
-    try:
-        return GALLERY_SORTS_DB[sort]
-    except KeyError:
-        raise ValueError(f"unknown gallery sort: {sort!r}") from None
-
-
-def _gallery_where(
-    creator_id: int,
+def _gallery_media_where(
     *,
     kind: str | None = None,
-    q: str | None = None,
-    tag: str | None = None,
     orientation: str | None = None,
     min_bytes: int | None = None,
-    date_from: int | None = None,
-    date_to: int | None = None,
-) -> tuple[str, list[Any]]:
-    where = ["p.creator_id = ?"]
-    params: list[Any] = [creator_id]
+) -> tuple[list[str], list[Any]]:
+    """Media-level gallery conditions (kind/orientation/size), aliased ``f``."""
+    where: list[str] = []
+    params: list[Any] = []
+    kind_sql = _media_kind_expr("f")
 
     selected = kind if kind in GALLERY_KINDS else None
     if selected:
-        where.append("f.kind = ?")
+        where.append(f"{kind_sql} = ?")
         params.append(selected)
     else:
         placeholders = ",".join("?" for _ in GALLERY_KINDS)
-        where.append(f"f.kind IN ({placeholders})")
+        where.append(f"{kind_sql} IN ({placeholders})")
         params.extend(GALLERY_KINDS)
 
-    if q:
-        needle = f"%{q}%"
-        where.append("(p.title LIKE ? OR p.caption_text LIKE ?)")
-        params.extend([needle, needle])
-    if tag:
-        where.append("EXISTS (SELECT 1 FROM tags t WHERE t.post_id = p.id AND t.slug = ?)")
-        params.append(tag)
-    if date_from is not None:
-        where.append("COALESCE(p.published, 0) >= ?")
-        params.append(date_from)
-    if date_to is not None:
-        where.append("COALESCE(p.published, 0) <= ?")
-        params.append(date_to)
     if min_bytes:
         where.append("COALESCE(f.bytes, 0) >= ?")
         params.append(int(min_bytes))
@@ -1543,10 +1841,70 @@ def _gallery_where(
             "f.width IS NOT NULL AND f.height IS NOT NULL AND f.width = f.height"
         )
 
-    return " AND ".join(where), params
+    return where, params
 
 
-def list_gallery_images(
+def _gallery_post_where(
+    creator_id: int,
+    *,
+    q: str | None = None,
+    tag: str | None = None,
+    date_from: int | None = None,
+    date_to: int | None = None,
+) -> tuple[list[str], list[Any]]:
+    """Post-level gallery conditions (search, tag and date range)."""
+    where = ["p.creator_id = ?"]
+    params: list[Any] = [creator_id]
+
+    if q:
+        needle = f"%{q}%"
+        where.append("(p.title LIKE ? OR p.caption_text LIKE ?)")
+        params.extend([needle, needle])
+    if tag:
+        where.append("EXISTS (SELECT 1 FROM tags t WHERE t.post_id = p.id AND t.slug = ?)")
+        params.append(tag)
+    if date_from is not None:
+        where.append("COALESCE(p.published, 0) >= ?")
+        params.append(date_from)
+    if date_to is not None:
+        where.append("COALESCE(p.published, 0) <= ?")
+        params.append(date_to)
+
+    return where, params
+
+
+def _gallery_post_order(
+    sort: str, media_sql: str
+) -> tuple[str, list[Any]]:
+    """Return ``(ORDER BY, params)`` for a post-grouped gallery page.
+
+    ``media_sql`` is the already-built media condition joined with ``AND``.
+    It appears in the duration subquery, so its params are repeated there.
+    """
+    if sort not in GALLERY_POST_SORTS:
+        raise ValueError(f"unknown gallery sort: {sort!r}")
+
+    if sort == "newest":
+        return "COALESCE(p.published, 0) DESC, p.id DESC", []
+    if sort == "oldest":
+        return "COALESCE(p.published, 0) ASC, p.id ASC", []
+
+    aggregate = "max" if sort == "duration_desc" else "min"
+    duration = (
+        f"(SELECT {aggregate}(d.duration_ms) FROM files d "
+        f"WHERE d.post_id = p.id AND {_media_kind_expr('d')} = 'video' "
+        f"AND d.duration_ms IS NOT NULL AND d.duration_ms > 0 AND "
+        f"{media_sql.replace('f.', 'd.')})"
+    )
+    direction = "DESC" if sort == "duration_desc" else "ASC"
+    order = (
+        f"CASE WHEN {duration} IS NULL THEN 1 ELSE 0 END, "
+        f"{duration} {direction}, COALESCE(p.published, 0) DESC, p.id DESC"
+    )
+    return order, []
+
+
+def list_gallery_posts(
     conn: sqlite3.Connection,
     creator_id: int,
     *,
@@ -1558,55 +1916,95 @@ def list_gallery_images(
     date_from: int | None = None,
     date_to: int | None = None,
     sort: str = "newest",
-    limit: int = 60,
+    limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Return (media, total) for a creator's gallery.
+    """Return ``(post_groups, total_posts)`` for a creator's gallery (T4.11).
 
-    One row per distinct ``sha256`` across the whole archive: the same file
-    attached to several posts is shown once, with ``copies`` telling the UI how
-    many posts carry it.
+    Pagination counts posts, not media. Each group carries the post's matching
+    media in viewer order (``COALESCE(position, 0), id``) and a ``viewer_index``
+    computed among *all* viewer-eligible files of that post, before the media
+    filters are applied. The page costs three queries: total, post page and one
+    batched media fetch.
     """
-    order_sql = gallery_order_sql(sort)
-    where_sql, params = _gallery_where(
-        creator_id,
-        kind=kind,
-        q=q,
-        tag=tag,
-        orientation=orientation,
-        min_bytes=min_bytes,
-        date_from=date_from,
-        date_to=date_to,
+    if sort not in GALLERY_POST_SORTS:
+        raise ValueError(f"unknown gallery sort: {sort!r}")
+
+    media_where, media_params = _gallery_media_where(
+        kind=kind, orientation=orientation, min_bytes=min_bytes
     )
+    post_where, post_params = _gallery_post_where(
+        creator_id, q=q, tag=tag, date_from=date_from, date_to=date_to
+    )
+    media_sql = " AND ".join(media_where)
+    exists_sql = (
+        "EXISTS (SELECT 1 FROM files f WHERE f.post_id = p.id AND " + media_sql + ")"
+    )
+    where_sql = " AND ".join([*post_where, exists_sql])
 
     total = int(
         conn.execute(
-            f"""
-            SELECT count(DISTINCT f.sha256) AS n
-            FROM files f JOIN posts p ON p.id = f.post_id
-            WHERE {where_sql}
-            """,
-            params,
+            f"SELECT count(*) AS n FROM posts p WHERE {where_sql}",
+            [*post_params, *media_params],
         ).fetchone()["n"]
     )
 
-    rows = conn.execute(
+    order_sql, _ = _gallery_post_order(sort, media_sql)
+    order_params = (
+        [*media_params, *media_params]
+        if sort in {"duration_desc", "duration_asc"}
+        else []
+    )
+    post_rows = conn.execute(
         f"""
-        SELECT f.id, f.post_id, f.position, f.sha256, f.kind, f.mime_type, f.bytes,
-               f.width, f.height, f.duration_ms, f.variants_json,
-               f.original_filename, f.url, f.thumb_url,
-               p.title AS post_title,
-               max(COALESCE(p.published, 0)) AS published,
-               count(*) AS copies
-        FROM files f JOIN posts p ON p.id = f.post_id
+        SELECT p.id, p.service_id, p.title, p.published,
+               (SELECT f.thumb_url FROM files f
+                  WHERE f.post_id = p.id AND {media_sql}
+                    AND f.thumb_url IS NOT NULL
+                  ORDER BY COALESCE(f.position, 0), f.id LIMIT 1) AS thumb_url
+        FROM posts p
         WHERE {where_sql}
-        GROUP BY f.sha256
         ORDER BY {order_sql}
         LIMIT ? OFFSET ?
         """,
-        [*params, limit, offset],
+        [*media_params, *post_params, *media_params, *order_params, limit, offset],
     ).fetchall()
-    return _rows(rows), total
+
+    groups = [dict(row) | {"media": []} for row in post_rows]
+    if not groups:
+        return groups, total
+
+    by_id = {int(group["id"]): group for group in groups}
+    ids = list(by_id)
+    placeholders = ",".join("?" for _ in ids)
+    viewer_placeholders = ",".join("?" for _ in VIEWER_KINDS)
+    kind_sql = _media_kind_expr("f")
+    media_rows = conn.execute(
+        f"""
+        WITH ranked AS (
+          SELECT f.*, {kind_sql} AS effective_kind,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY f.post_id
+                   ORDER BY COALESCE(f.position, 0), f.id
+                 ) - 1 AS viewer_index
+          FROM files f
+          WHERE f.post_id IN ({placeholders})
+            AND {kind_sql} IN ({viewer_placeholders})
+        )
+        SELECT r.id, r.post_id, r.position, r.sha256, r.effective_kind AS kind,
+               r.mime_type, r.bytes, r.width, r.height, r.duration_ms,
+               r.variants_json, r.original_filename, r.url, r.thumb_url,
+               r.viewer_index
+        FROM ranked r
+        WHERE {media_sql.replace('f.', 'r.')}
+        ORDER BY r.post_id, COALESCE(r.position, 0), r.id
+        """,
+        [*ids, *VIEWER_KINDS, *media_params],
+    ).fetchall()
+
+    for row in media_rows:
+        by_id[int(row["post_id"])]["media"].append(dict(row))
+    return groups, total
 
 
 def gallery_stats(conn: sqlite3.Connection, creator_id: int) -> dict[str, Any]:
@@ -1661,54 +2059,134 @@ def _viewer_kind_placeholders() -> str:
     return ",".join("?" for _ in VIEWER_KINDS)
 
 
+def _viewer_gallery_filters(filters: Any | None) -> Any | None:
+    if filters is None:
+        return None
+    from .web.filters import GalleryFilters
+    if isinstance(filters, GalleryFilters):
+        return filters if filters.context_query else None
+    return None
+
+
 def latest_viewer_post(
-    conn: sqlite3.Connection, creator_id: int
+    conn: sqlite3.Connection,
+    creator_id: int,
+    *,
+    filters: Any | None = None,
 ) -> dict[str, Any] | None:
     """Newest post carrying at least one viewer-eligible file."""
+    gallery_filters = _viewer_gallery_filters(filters)
+    if gallery_filters is None:
+        row = conn.execute(
+            f"""
+            SELECT p.*
+            FROM posts p
+            WHERE p.creator_id = ?
+              AND EXISTS (
+                SELECT 1 FROM files f
+                WHERE f.post_id = p.id
+                  AND {_media_kind_expr("f")} IN ({_viewer_kind_placeholders()})
+              )
+            ORDER BY COALESCE(p.published, 0) DESC, p.id DESC
+            LIMIT 1
+            """,
+            (creator_id, *VIEWER_KINDS),
+        ).fetchone()
+        return _dict(row)
+
+    media_where, media_params = _gallery_media_where(
+        kind=gallery_filters.kind,
+        orientation=gallery_filters.orientation,
+        min_bytes=gallery_filters.min_bytes,
+    )
+    post_where, post_params = _gallery_post_where(
+        creator_id,
+        q=gallery_filters.q,
+        tag=gallery_filters.tag,
+        date_from=gallery_filters.date_from,
+        date_to=gallery_filters.date_to,
+    )
+    media_sql = " AND ".join(media_where)
+    where_sql = " AND ".join([
+        *post_where,
+        f"EXISTS (SELECT 1 FROM files f WHERE f.post_id = p.id AND {media_sql})",
+    ])
+    order_sql, _ = _gallery_post_order(gallery_filters.sort, media_sql)
+    params = [*post_params, *media_params]
     row = conn.execute(
         f"""
         SELECT p.*
         FROM posts p
-        WHERE p.creator_id = ?
-          AND EXISTS (
-            SELECT 1 FROM files f
-            WHERE f.post_id = p.id AND f.kind IN ({_viewer_kind_placeholders()})
-          )
-        ORDER BY COALESCE(p.published, 0) DESC, p.id DESC
+        WHERE {where_sql}
+        ORDER BY {order_sql}
         LIMIT 1
         """,
-        (creator_id, *VIEWER_KINDS),
+        params,
     ).fetchone()
     return _dict(row)
 
 
 def viewer_media(
-    conn: sqlite3.Connection, creator_id: int, post_service_id: str
+    conn: sqlite3.Connection,
+    creator_id: int,
+    post_service_id: str,
+    *,
+    filters: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Viewer-eligible files for one post, in ``position`` order.
 
-    The payload is deliberately post-scoped: no archive-wide sha dedupe, so the
-    same attachment on two posts stays reachable from both (T8.1).
+    The stored ``kind`` is normalized at read time so a stale/contradictory row
+    becomes the element the browser can actually paint (T8.17).
     """
-    rows = conn.execute(
-        f"""
-        SELECT f.position AS post_position, f.sha256, f.kind, f.mime_type,
-               f.width, f.height, f.duration_ms, f.bytes, f.url, f.thumb_url,
-               f.variants_json, f.original_filename,
+    gallery_filters = _viewer_gallery_filters(filters)
+    kind_sql = _media_kind_expr("f")
+    base_sql = f"""
+        SELECT f.position AS post_position, f.sha256, {kind_sql} AS kind,
+               f.mime_type, f.width, f.height, f.duration_ms, f.bytes, f.url,
+               f.thumb_url, f.variants_json, f.original_filename,
                p.service_id AS post_service_id
         FROM files f
         JOIN posts p ON p.id = f.post_id
         WHERE p.creator_id = ? AND p.service_id = ?
-          AND f.kind IN ({_viewer_kind_placeholders()})
-        ORDER BY COALESCE(f.position, 0), f.id
-        """,
-        (creator_id, post_service_id, *VIEWER_KINDS),
-    ).fetchall()
+    """
+    params: list[Any] = [creator_id, post_service_id]
+    if gallery_filters is None:
+        sql = (
+            base_sql
+            + f"  AND {kind_sql} IN ({_viewer_kind_placeholders()})\n"
+            + "        ORDER BY COALESCE(f.position, 0), f.id\n"
+        )
+        params.extend(VIEWER_KINDS)
+    else:
+        media_where, media_params = _gallery_media_where(
+            kind=gallery_filters.kind,
+            orientation=gallery_filters.orientation,
+            min_bytes=gallery_filters.min_bytes,
+        )
+        sql = (
+            base_sql
+            + "  AND "
+            + " AND ".join(media_where)
+            + "\n        ORDER BY COALESCE(f.position, 0), f.id\n"
+        )
+        params.extend(media_params)
+    rows = conn.execute(sql, params).fetchall()
 
     media: list[dict[str, Any]] = []
     for index, row in enumerate(rows):
         item = dict(row)
         item["variants"] = _variants_from_json(item.pop("variants_json", None))
+        # Defence in depth: the SQL expression already normalized the kind, but
+        # Python applies the same classifier so a future query change cannot
+        # silently reintroduce a black `<img>` for an MP4-backed row.
+        item["kind"] = classify_media_kind(
+            raw_kind=item.get("kind"),
+            mime_type=item.get("mime_type"),
+            original_filename=item.get("original_filename"),
+            variants=item.get("variants"),
+            duration_ms=item.get("duration_ms"),
+            url=item.get("url"),
+        )
         item["index"] = index
         item["filename"] = item.pop("original_filename", None) or (
             f"{(item.get('sha256') or 'media')[:12]}"
@@ -1717,21 +2195,139 @@ def viewer_media(
     return media
 
 
+def _viewer_scope(
+    conn: sqlite3.Connection,
+    creator_id: int,
+    gallery_filters: Any | None,
+) -> dict[str, Any]:
+    """One reusable WHERE/ORDER scope for viewer post navigation.
+
+    Post filters (search, tag, dates) and media filters (kind, orientation,
+    size) are shared with the gallery, so the viewer list and the grouped
+    gallery cannot drift (T8.19). ``order_sql`` is the gallery post order and
+    therefore also honours ``newest``/``oldest``/duration sorts.
+    """
+    if gallery_filters is None:
+        media_sql = (
+            f"{_media_kind_expr('f')} IN ({_viewer_kind_placeholders()})"
+        )
+        media_params: list[Any] = list(VIEWER_KINDS)
+        where_sql = (
+            "p.creator_id = ? AND EXISTS ("
+            f"SELECT 1 FROM files f WHERE f.post_id = p.id AND {media_sql})"
+        )
+        post_params: list[Any] = [creator_id]
+        order_sql = "COALESCE(p.published, 0) DESC, p.id DESC"
+        order_params: list[Any] = []
+    else:
+        media_where, media_params = _gallery_media_where(
+            kind=gallery_filters.kind,
+            orientation=gallery_filters.orientation,
+            min_bytes=gallery_filters.min_bytes,
+        )
+        media_sql = " AND ".join(media_where)
+        post_where, post_params = _gallery_post_where(
+            creator_id,
+            q=gallery_filters.q,
+            tag=gallery_filters.tag,
+            date_from=gallery_filters.date_from,
+            date_to=gallery_filters.date_to,
+        )
+        where_sql = " AND ".join(
+            [
+                *post_where,
+                "EXISTS (SELECT 1 FROM files f "
+                f"WHERE f.post_id = p.id AND {media_sql})",
+            ]
+        )
+        order_sql, _ = _gallery_post_order(gallery_filters.sort, media_sql)
+        order_params = (
+            [*media_params, *media_params]
+            if gallery_filters.sort in {"duration_desc", "duration_asc"}
+            else []
+        )
+    return {
+        "where_sql": where_sql,
+        "post_params": post_params,
+        "media_params": media_params,
+        "order_sql": order_sql,
+        "order_params": order_params,
+    }
+
+
+def viewer_post_window(
+    conn: sqlite3.Connection,
+    creator_id: int,
+    post: dict[str, Any],
+    *,
+    filters: Any | None = None,
+) -> dict[str, Any]:
+    """Rank, total and neighbours of ``post`` in the active filtered order.
+
+    ``previous`` and ``next`` are positions in the gallery list, not
+    chronological ``newer``/``older``: with ``sort=oldest`` the previous post is
+    the older one. This is what the viewer's up/down gestures cross (T8.19).
+    """
+    gallery_filters = _viewer_gallery_filters(filters)
+    scope = _viewer_scope(conn, creator_id, gallery_filters)
+    params: list[Any] = [
+        *scope["order_params"],
+        *scope["post_params"],
+        *scope["media_params"],
+        int(post["id"]),
+    ]
+    row = conn.execute(
+        f"""
+        WITH ranked AS (
+          SELECT p.id, p.service_id,
+                 ROW_NUMBER() OVER (ORDER BY {scope['order_sql']}) AS rn
+          FROM posts p
+          WHERE {scope['where_sql']}
+        )
+        SELECT
+          (SELECT service_id FROM ranked WHERE rn = r.rn - 1) AS previous_post,
+          (SELECT service_id FROM ranked WHERE rn = r.rn + 1) AS next_post,
+          r.rn AS rank,
+          (SELECT count(*) FROM ranked) AS total
+        FROM ranked r
+        WHERE r.id = ?
+        """,
+        params,
+    ).fetchone()
+    if row is None:
+        return {
+            "previous_post": None,
+            "next_post": None,
+            "rank": 1,
+            "total": 1,
+        }
+    return {
+        "previous_post": (
+            str(row["previous_post"])
+            if row["previous_post"] is not None
+            else None
+        ),
+        "next_post": (
+            str(row["next_post"]) if row["next_post"] is not None else None
+        ),
+        "rank": int(row["rank"] or 1),
+        "total": int(row["total"] or 1),
+    }
+
+
 def viewer_neighbour(
     conn: sqlite3.Connection,
     creator_id: int,
     post: dict[str, Any],
     direction: str,
+    *,
+    filters: Any | None = None,
 ) -> str | None:
-    """Nearest post with viewer media that is ``newer`` or ``older``.
-
-    List order is ``published DESC``: newer means a higher ``published`` (and
-    higher post id on a tie); older means the opposite. Posts without eligible
-    media are skipped entirely, so a text-only post is never a destination.
-    """
+    """Nearest post, chronologically ``newer`` or ``older``, with matching media."""
     if direction not in {"newer", "older"}:
         raise ValueError(f"unknown viewer direction: {direction!r}")
 
+    gallery_filters = _viewer_gallery_filters(filters)
     marker = int(post.get("published") or 0)
     post_id = int(post["id"])
     if direction == "newer":
@@ -1747,20 +2343,49 @@ def viewer_neighbour(
         )
         order = "COALESCE(p.published, 0) DESC, p.id DESC"
 
+    if gallery_filters is None:
+        kind_sql = (
+            f"{_media_kind_expr('f')} IN ({_viewer_kind_placeholders()})"
+        )
+        where = f"""
+            p.creator_id = ?
+              AND {comparison}
+              AND EXISTS (
+                SELECT 1 FROM files f
+                WHERE f.post_id = p.id AND {kind_sql}
+              )
+        """
+        params = (creator_id, marker, marker, post_id, *VIEWER_KINDS)
+    else:
+        media_where, media_params = _gallery_media_where(
+            kind=gallery_filters.kind,
+            orientation=gallery_filters.orientation,
+            min_bytes=gallery_filters.min_bytes,
+        )
+        post_where, post_params = _gallery_post_where(
+            creator_id,
+            q=gallery_filters.q,
+            tag=gallery_filters.tag,
+            date_from=gallery_filters.date_from,
+            date_to=gallery_filters.date_to,
+        )
+        media_sql = " AND ".join(media_where)
+        where = " AND ".join([
+            *post_where,
+            comparison,
+            f"EXISTS (SELECT 1 FROM files f WHERE f.post_id = p.id AND {media_sql})",
+        ])
+        params = [*post_params, marker, marker, post_id, *media_params]
+
     row = conn.execute(
         f"""
         SELECT p.service_id
         FROM posts p
-        WHERE p.creator_id = ?
-          AND {comparison}
-          AND EXISTS (
-            SELECT 1 FROM files f
-            WHERE f.post_id = p.id AND f.kind IN ({_viewer_kind_placeholders()})
-          )
+        WHERE {where}
         ORDER BY {order}
         LIMIT 1
         """,
-        (creator_id, marker, marker, post_id, *VIEWER_KINDS),
+        params,
     ).fetchone()
     return str(row["service_id"]) if row is not None else None
 
@@ -1771,8 +2396,15 @@ def _neighbour_preload_images(
     post_service_id: str | None,
     direction: str,
     limit: int,
+    *,
+    filters: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """Edge-ordered still images for one already-resolved neighbour post."""
+    """Edge-ordered, paint-ready still/poster entries for one neighbour post.
+
+    Images contribute their real URL. Videos and GIFs contribute their poster
+    (``thumb_url``) so the ring can paint them without requesting video bytes
+    or starting a GIF in the paint buffer (T8.17/T8.18).
+    """
     if not post_service_id or limit <= 0:
         return []
     if direction == "previous":
@@ -1782,25 +2414,59 @@ def _neighbour_preload_images(
     else:
         raise ValueError(f"unknown neighbour direction: {direction!r}")
 
+    gallery_filters = _viewer_gallery_filters(filters)
+    kind_sql = _media_kind_expr("f")
+    media_where, media_params = _gallery_media_where(
+        kind=gallery_filters.kind if gallery_filters is not None else None,
+        orientation=(
+            gallery_filters.orientation if gallery_filters is not None else None
+        ),
+        min_bytes=(
+            gallery_filters.min_bytes if gallery_filters is not None else None
+        ),
+    )
+    media_sql = " AND ".join(media_where)
+
     rows = conn.execute(
         f"""
-        SELECT p.service_id AS post_service_id, f.sha256, f.url, f.thumb_url,
-               f.width, f.height, f.original_filename
+        SELECT p.service_id AS post_service_id, f.sha256, {kind_sql} AS kind,
+               f.mime_type, f.url, f.thumb_url, f.width, f.height,
+               f.original_filename, f.variants_json, f.duration_ms
         FROM files f
         JOIN posts p ON p.id = f.post_id
         WHERE p.creator_id = ? AND p.service_id = ?
-          AND f.kind = 'image'
+          AND {media_sql}
           AND f.url IS NOT NULL AND f.url != ''
           AND f.url NOT LIKE 'data:%'
         ORDER BY {order}
         LIMIT ?
         """,
-        (creator_id, post_service_id, int(limit)),
+        (creator_id, post_service_id, *media_params, int(limit) * 4),
     ).fetchall()
-    images = _rows(rows)
-    for image in images:
-        image["kind"] = "image"
-    return images
+
+    entries: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["kind"] = classify_media_kind(
+            raw_kind=item.get("kind"),
+            mime_type=item.get("mime_type"),
+            original_filename=item.get("original_filename"),
+            variants=_variants_from_json(item.get("variants_json")),
+            duration_ms=item.get("duration_ms"),
+            url=item.get("url"),
+        )
+        item.pop("variants_json", None)
+        warm_url = item.get("url") if item["kind"] == "image" else item.get(
+            "thumb_url"
+        )
+        if not warm_url or str(warm_url).startswith("data:"):
+            continue
+        item["warm_url"] = warm_url
+        item["poster"] = item.get("thumb_url") or None
+        entries.append(item)
+        if len(entries) >= limit:
+            break
+    return entries
 
 
 def neighbour_preload_images(
@@ -1809,84 +2475,136 @@ def neighbour_preload_images(
     post: dict[str, Any],
     direction: str,
     limit: int = NEIGHBOUR_PRELOAD_LIMIT,
+    *,
+    filters: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """Return the edge images of the ``previous`` or ``next`` viewer post.
-
-    ``previous`` is the newer post and is ordered nearest-edge first
-    (``position DESC``) because crossing left lands on its last item. ``next``
-    is the older post and is ordered nearest-edge first (``position ASC``)
-    because crossing right lands on its first item (T8.8).
-    """
+    """Return the edge images of the ``previous`` or ``next`` viewer post."""
     if direction not in {"previous", "next"}:
         raise ValueError(f"unknown neighbour direction: {direction!r}")
-    neighbour = "newer" if direction == "previous" else "older"
-    service_id = viewer_neighbour(conn, creator_id, post, neighbour)
+    window = viewer_post_window(conn, creator_id, post, filters=filters)
+    service_id = (
+        window["previous_post"] if direction == "previous" else window["next_post"]
+    )
     return _neighbour_preload_images(
-        conn, creator_id, service_id, direction, int(limit)
+        conn,
+        creator_id,
+        service_id,
+        direction,
+        int(limit),
+        filters=filters,
     )
 
 
 def viewer_post_rank(
-    conn: sqlite3.Connection, creator_id: int, post: dict[str, Any]
+    conn: sqlite3.Connection,
+    creator_id: int,
+    post: dict[str, Any],
+    *,
+    filters: Any | None = None,
 ) -> tuple[int, int]:
-    """One-based position of ``post`` among media posts, newest first, and total.
+    """One-based position of ``post`` in the active filtered order, and total."""
+    window = viewer_post_window(conn, creator_id, post, filters=filters)
+    return window["rank"], window["total"]
 
-    Mirrors the ``latest_viewer_post`` ordering so the counter announced to
-    screen readers agrees with Up/Down navigation (T8.4).
+
+def _nearest_matching_post(
+    conn: sqlite3.Connection,
+    creator_id: int,
+    post: dict[str, Any],
+    gallery_filters: Any,
+) -> dict[str, Any] | None:
+    """Closest post with matching media when the requested post has none.
+
+    Fallback rule (T8.19): keep the viewer inside the filtered set and jump to
+    the chronologically nearest matching post. Duration sorts still use the
+    published date for this fallback; the sorted boundary order itself is
+    handled by :func:`viewer_post_window`.
     """
-    marker = int(post.get("published") or 0)
-    post_id = int(post["id"])
+    scope = _viewer_scope(conn, creator_id, gallery_filters)
     row = conn.execute(
         f"""
-        SELECT
-          SUM(
-            CASE WHEN COALESCE(p.published, 0) > ?
-                   OR (COALESCE(p.published, 0) = ? AND p.id >= ?)
-                 THEN 1 ELSE 0 END
-          ) AS rank,
-          COUNT(*) AS total
+        SELECT p.*
         FROM posts p
-        WHERE p.creator_id = ?
-          AND EXISTS (
-            SELECT 1 FROM files f
-            WHERE f.post_id = p.id AND f.kind IN ({_viewer_kind_placeholders()})
-          )
+        WHERE {scope['where_sql']} AND p.id != ?
+        ORDER BY abs(COALESCE(p.published, 0) - ?), p.id
+        LIMIT 1
         """,
-        (marker, marker, post_id, creator_id, *VIEWER_KINDS),
+        [
+            *scope["post_params"],
+            *scope["media_params"],
+            int(post["id"]),
+            int(post.get("published") or 0),
+        ],
     ).fetchone()
-    if row is None:
-        return 1, 1
-    return int(row["rank"] or 1), int(row["total"] or 1)
+    return _dict(row)
+
+
+def viewer_context_payload(gallery_filters: Any | None) -> dict[str, Any] | None:
+    if gallery_filters is None:
+        return None
+    kind = gallery_filters.kind
+    words = {
+        "image": ("image", "images"),
+        "video": ("video", "videos"),
+        "gif": ("gif", "gifs"),
+    }
+    singular, plural = words.get(kind or "", ("media", "media"))
+    return {
+        "token": gallery_filters.context_query or None,
+        "kind": kind,
+        "singular": singular,
+        "plural": plural,
+        "sort": gallery_filters.sort,
+    }
 
 
 def viewer_state(
     conn: sqlite3.Connection,
     creator_id: int,
     post_service_id: str | None = None,
+    *,
+    include_manifest: bool = True,
+    filters: Any | None = None,
 ) -> dict[str, Any] | None:
-    """Assemble the viewer payload for one post (or the latest media post).
+    """Assemble the viewer payload for one post (or the latest matching post).
 
-    Returns ``None`` for an unknown creator, an unknown post, or a post with no
-    viewer-eligible media. The full media list is current-post scoped; adjacent
-    posts contribute only bounded image descriptors for preloading (T8.8).
+    An explicit ``post`` whose media all fall outside the filter falls back to
+    the nearest matching post (documented in ``_nearest_matching_post``) rather
+    than silently rendering unfiltered media.
     """
     creator = get_creator(conn, creator_id)
     if creator is None:
         return None
 
+    gallery_filters = _viewer_gallery_filters(filters)
     if post_service_id is None:
-        post = latest_viewer_post(conn, creator_id)
+        post = latest_viewer_post(conn, creator_id, filters=gallery_filters)
     else:
         post = get_post_by_service_id(conn, creator_id, post_service_id)
     if post is None:
         return None
 
-    media = viewer_media(conn, creator_id, str(post["service_id"]))
+    media = viewer_media(
+        conn, creator_id, str(post["service_id"]), filters=gallery_filters
+    )
     if not media:
-        return None
-    post_rank, media_post_count = viewer_post_rank(conn, creator_id, post)
-    previous_post = viewer_neighbour(conn, creator_id, post, "newer")
-    next_post = viewer_neighbour(conn, creator_id, post, "older")
+        if gallery_filters is not None:
+            fallback = _nearest_matching_post(conn, creator_id, post, gallery_filters)
+            if fallback is None:
+                return None
+            post = fallback
+            media = viewer_media(
+                conn, creator_id, str(post["service_id"]), filters=gallery_filters
+            )
+            if not media:
+                return None
+        else:
+            return None
+    window = viewer_post_window(conn, creator_id, post, filters=gallery_filters)
+    post_rank = window["rank"]
+    media_post_count = window["total"]
+    previous_post = window["previous_post"]
+    next_post = window["next_post"]
 
     bookmarked_shas = bookmarked_media_shas(
         conn, creator_id, [item["sha256"] for item in media]
@@ -1894,7 +2612,7 @@ def viewer_state(
     for item in media:
         item["bookmarked"] = item["sha256"] in bookmarked_shas
 
-    return {
+    payload = {
         "creator": {
             "id": creator["id"],
             "name": creator.get("display_name")
@@ -1923,6 +2641,7 @@ def viewer_state(
                 previous_post,
                 "previous",
                 NEIGHBOUR_PRELOAD_LIMIT,
+                filters=gallery_filters,
             ),
             "next": _neighbour_preload_images(
                 conn,
@@ -1930,9 +2649,21 @@ def viewer_state(
                 next_post,
                 "next",
                 NEIGHBOUR_PRELOAD_LIMIT,
+                filters=gallery_filters,
             ),
         },
     }
+    if gallery_filters is not None:
+        payload["gf"] = gallery_filters.context_query or None
+        payload["context"] = viewer_context_payload(gallery_filters)
+    if include_manifest:
+        payload["manifest"] = {
+            "version": 1,
+            "posts": viewer_manifest(
+                conn, creator_id, filters=gallery_filters
+            ),
+        }
+    return payload
 
 
 def replace_links(
@@ -2485,3 +3216,89 @@ def print_stats() -> int:
     size = path.stat().st_size
     print(f"{'size:':<18}{size / 1024:.1f} KiB")
     return 0
+def viewer_manifest(
+    conn: sqlite3.Connection,
+    creator_id: int,
+    *,
+    filters: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Compact navigation/data map for matching media posts in gallery order.
+
+    The manifest carries links and neighbour pointers for post paging without
+    duplicating every post's full media payload. It is scoped by the same
+    gallery filters as the viewer (T8.19) and every ``data_url`` keeps the
+    context token so a jump cannot fall back to the unfiltered archive.
+    """
+    gallery_filters = _viewer_gallery_filters(filters)
+    scope = _viewer_scope(conn, creator_id, gallery_filters)
+    media_sql = (
+        f"{_media_kind_expr('f')} IN ({_viewer_kind_placeholders()})"
+    )
+    media_params: list[Any] = list(VIEWER_KINDS)
+    if gallery_filters is not None:
+        media_where, media_params = _gallery_media_where(
+            kind=gallery_filters.kind,
+            orientation=gallery_filters.orientation,
+            min_bytes=gallery_filters.min_bytes,
+        )
+        media_sql = " AND ".join(media_where)
+    token = gallery_filters.context_query if gallery_filters is not None else ""
+
+    rows = conn.execute(
+        f"""
+        WITH ordered AS (
+          SELECT p.id, p.service_id, p.title, p.published,
+                 ROW_NUMBER() OVER (ORDER BY {scope['order_sql']}) AS rank
+          FROM posts p
+          WHERE {scope['where_sql']}
+        )
+        SELECT
+          o.id,
+          o.service_id,
+          o.title,
+          o.published,
+          o.rank,
+          (SELECT service_id FROM ordered WHERE rank = o.rank - 1)
+            AS previous_post,
+          (SELECT service_id FROM ordered WHERE rank = o.rank + 1)
+            AS next_post,
+          (SELECT COUNT(*) FROM files f
+            WHERE f.post_id = o.id AND {media_sql}) AS media_count
+        FROM ordered o
+        ORDER BY o.rank
+        """,
+        [
+            *scope["order_params"],
+            *scope["post_params"],
+            *scope["media_params"],
+            *media_params,
+        ],
+    ).fetchall()
+    manifest: list[dict[str, Any]] = []
+    for row in rows:
+        service_id = str(row["service_id"])
+        data_url = f"/c/{int(creator_id)}/viewer/data?post={service_id}"
+        if token:
+            data_url += "&gf=" + quote(token, safe="")
+        manifest.append(
+            {
+                "service_id": service_id,
+                "title": row["title"],
+                "published": row["published"],
+                "post_url": f"/c/{int(creator_id)}/p/{service_id}",
+                "data_url": data_url,
+                "rank": int(row["rank"] or 1),
+                "media_count": int(row["media_count"] or 0),
+                "previous_post": (
+                    str(row["previous_post"])
+                    if row["previous_post"] is not None
+                    else None
+                ),
+                "next_post": (
+                    str(row["next_post"])
+                    if row["next_post"] is not None
+                    else None
+                ),
+            }
+        )
+    return manifest

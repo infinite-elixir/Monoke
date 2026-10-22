@@ -119,7 +119,9 @@ def test_creator_page_renders_bookmarked_state_per_row(client, conn):
     assert len(buttons) == 2
     assert sum('aria-pressed="true"' in button for button in buttons) == 1
     assert sum('aria-pressed="false"' in button for button in buttons) == 1
-    assert "Bookmarked" in body
+    assert body.count('class="bookmark-icon"') == 2
+    assert ">Bookmarked<" not in body
+    assert ">Bookmark<" not in body
     assert "Bookmark post: Saved post" in body
     assert "Bookmark post: Unsaved post" in body
 
@@ -242,3 +244,60 @@ def test_viewer_script_wires_b_and_shift_b_without_visible_chrome(client, conn):
     assert 'data-viewer-toast aria-hidden="true" hidden' in body
     # No persistent bookmark button is added to the viewer chrome.
     assert "data-bookmark-button" not in body
+
+
+# --------------------------------------------------------------------------- #
+# T4.9 - icon-only controls
+# --------------------------------------------------------------------------- #
+
+
+def test_every_surface_renders_an_icon_without_visible_state_text(client, conn):
+    from monoke.web.templating import STATIC_DIR
+
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 1, title="Icon post")
+    add_file(conn, post_id, sha(1), kind="image")
+    add_file(conn, post_id, sha(2), kind="video")
+    db.toggle_media_bookmark(conn, creator_id, sha(2))
+
+    bodies = {
+        "creator": client.get(f"/c/{creator_id}").text,
+        "post": client.get(f"/c/{creator_id}/p/900001").text,
+        "gallery": client.get(f"/c/{creator_id}/gallery").text,
+        "bookmarks": client.get("/bookmarks").text,
+    }
+
+    for surface, body in bodies.items():
+        assert "bookmark-icon" in body, surface
+        assert ">Bookmark<" not in body, surface
+        assert ">Bookmarked<" not in body, surface
+        assert "aria-pressed=" in body, surface
+        # Every control is still a plain form POST.
+        assert "data-bookmark-form" in body, surface
+
+    post_body = bodies["post"]
+    assert post_body.count('class="bookmark-icon"') == 3
+    post_buttons = re.findall(r"<button[^>]*data-bookmark-button[^>]*>", post_body)
+    assert sum('aria-pressed="true"' in button for button in post_buttons) == 1
+    assert 'title="Remove bookmark"' in post_body
+
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    toggle = script.split("function toggleBookmarkForm", 1)[1].split(
+        "function copyAllLinks", 1
+    )[0]
+    assert 'button.textContent = on ? "Bookmarked" : "Bookmark";' not in toggle
+    assert 'button.classList.toggle("is-bookmarked", on)' in toggle
+    assert 'button.setAttribute("aria-pressed"' in toggle
+
+
+def test_bookmarked_tile_swaps_the_filled_glyph(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 1)
+    add_file(conn, post_id, sha(1))
+    db.toggle_media_bookmark(conn, creator_id, sha(1))
+
+    body = client.get(f"/c/{creator_id}/gallery").text
+
+    assert 'class="button button-small bookmark-button bookmark-compact is-bookmarked gallery-bookmark"' in body
+    assert 'aria-pressed="true"' in body
+    assert "bookmark-icon" in body

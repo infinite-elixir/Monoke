@@ -30,9 +30,6 @@
     <div class="creator-actions">
       <a class="button" href="/c/{{ creator.id }}/viewer" data-viewer-open>View latest</a>
       <a class="button" href="/c/{{ creator.id }}/gallery">Gallery</a>
-      {% if summary.videos %}
-        <a class="button" href="/c/{{ creator.id }}/gallery?kind=video">Videos</a>
-      {% endif %}
       <form method="post" action="/c/{{ creator.id }}/sync" data-sync-form>
         <button class="button button-primary" type="submit" data-sync-button
                 {% if active_run %}disabled aria-busy="true"{% endif %}>

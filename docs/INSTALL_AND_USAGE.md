@@ -402,7 +402,7 @@ Open it from **View latest** on the creator page or **Open viewer** on the galle
 - Shows one media item at a time with a counter (`3 / 42`).
 - Media is loaded from the cum.st edge host; nothing is cached to disk.
 - Videos have native controls; images fill the stage.
-- The first-run hint shows `↑` newer post, `↓` older post, `←` previous image,
+- The first-run hint shows `↑` older post, `↓` newer post, `←` previous image,
   `→` next image, plus `Esc` to close and `F` for fullscreen. The hint disappears as soon
   as you move.
 - Fullscreen is requested automatically on first interaction where the browser allows
@@ -413,7 +413,7 @@ Open it from **View latest** on the creator page or **Open viewer** on the galle
 | Key | Action |
 |---|---|
 | `←` / `→` | Previous / next media in the post. |
-| `↑` / `↓` | Newer / older post. |
+| `↑` / `↓` | Older / newer post. |
 | `b` | Bookmark or unbookmark the current media item. |
 | `Shift+B` | Bookmark or unbookmark the current post. |
 | `f` | Toggle fullscreen. |
@@ -421,8 +421,9 @@ Open it from **View latest** on the creator page or **Open viewer** on the galle
 | `Tab` / `Shift+Tab` | Keep focus inside the viewer. |
 
 **Mouse and touch** — wheel up/down moves between posts, wheel left/right moves between
-media. Swipe horizontally for media and vertically for posts. Click zones on the left,
-right, top and bottom edges do the same.
+media. Swipe horizontally for media and vertically for posts; the media follows your
+finger and the adjacent item is revealed flush against its edge. Tapping the stage only
+dismisses the hint — it never navigates.
 
 Query parameters (useful for bookmarks):
 

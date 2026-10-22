@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 from ..config import get_settings
 from ..models import Attachment, CreatorProfile
@@ -22,7 +23,7 @@ _KIND_EXT = {
 
 VIDEO_EXTENSIONS = frozenset({"mp4", "webm", "mov", "m4v"})
 AUDIO_EXTENSIONS = frozenset({"mp3", "m4a", "ogg", "wav", "opus"})
-IMAGE_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "webp", "avif", "gif"})
+IMAGE_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "webp", "avif", "bmp", "gif"})
 STILL_EXTENSIONS = IMAGE_EXTENSIONS - {"gif"}
 
 
@@ -32,6 +33,17 @@ def _extension(name: Any) -> str | None:
         return None
     ext = text.rsplit(".", 1)[1]
     return ext if ext.isalnum() and 1 <= len(ext) <= 5 else None
+
+
+def _url_path(url: Any) -> str | None:
+    """Path of an absolute or relative URL without query/fragment, or None."""
+    text = str(url or "").strip()
+    if not text:
+        return None
+    try:
+        return urlsplit(text).path or None
+    except (TypeError, ValueError):
+        return None
 
 
 def _variant_names(variants: Any) -> list[str]:
@@ -59,18 +71,22 @@ def classify_media_kind(
     original_filename: str | None = None,
     variants: Any = None,
     duration_ms: int | None = None,
+    url: str | None = None,
 ) -> str:
     """Derive one trustworthy media kind from the upstream signals.
 
     Upstream ``kind`` is unreliable: it labels short silent MP4s as ``gif``.
-    The mime type, filenames/variants and duration decide instead; the raw
-    value is kept by the caller for provenance.
+    The mime type, filenames/variants, URL and duration decide instead; the raw
+    value is kept by the caller for provenance. ``url`` is the read-time
+    fallback for historical rows whose stored kind contradicts the media URL
+    (T8.17) and is ignored by ingestion, which always has a filename.
     """
     mime = str(mime_type or "").strip().lower()
     extensions = {
         ext
         for ext in (
             _extension(original_filename),
+            _extension(_url_path(url)),
             *(_extension(name) for name in _variant_names(variants)),
         )
         if ext

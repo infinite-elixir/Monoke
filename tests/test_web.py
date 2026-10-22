@@ -155,23 +155,11 @@ def test_static_responses_revalidate():
     assert response.headers["cache-control"] == "no-cache, must-revalidate"
 
 
-def test_stylesheet_has_a_zone_reset_rule():
+def test_stylesheet_has_no_zone_rules():
     from monoke.web.templating import STATIC_DIR
 
     css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
-    assert ".viewer-zone {" in css
-    zone_rule = css.split(".viewer-zone {", 1)[1].split("}", 1)[0]
-    for declaration in (
-        "appearance: none",
-        "-webkit-appearance: none",
-        "background: none",
-        "border: 0",
-        "box-shadow: none",
-        "border-radius: 0",
-        "color: transparent",
-        "font-size: 0",
-        "line-height: 0",
-        "min-width: 0",
-        "min-height: 0",
-    ):
-        assert declaration in zone_rule
+    # T8.11: the invisible click regions are gone, CSS included.
+    assert ".viewer-zone" not in css
+    assert "data-viewer-action" not in css
+    assert "viewer-zone-next-post" not in css

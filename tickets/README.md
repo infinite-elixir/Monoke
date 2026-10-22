@@ -1,6 +1,6 @@
 # Monoke tickets
 
-49 tickets across 11 epics, targeting **cum.st** (OnlyHaven). Every ticket is a self-contained
+64 tickets across 11 epics, targeting **cum.st** (OnlyHaven). Every ticket is a self-contained
 markdown file with acceptance criteria, so it can be worked, reviewed, and closed independently.
 
 Plan: [`../PLAN.md`](../PLAN.md)
@@ -30,7 +30,10 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T4.5 | [Link explorer](T4.5-link-explorer.md) | UI | M | T4.3, T3.5 | done |
 | T4.6 | [Live sync progress](T4.6-sync-ui.md) | UI | M | T2.3, T4.2 | done |
 | T4.7 | [Per-creator gallery viewer](T4.7-gallery-viewer.md) | UI | M | T4.3, T3.4 | done (caption images deferred) |
-| T4.8 | [Gallery tile action menu: bookmark and start viewer here](T4.8-gallery-tile-action-menu.md) | UI | M | T4.7, T7.2, T8.1, T8.4, T9.1, T9.2 | todo |
+| T4.8 | [Gallery tile action menu: bookmark and start viewer here](T4.8-gallery-tile-action-menu.md) | UI | M | T4.7, T7.2, T8.1, T8.4, T9.1, T9.2 | superseded by T4.9–T4.11 |
+| T4.9 | [Icon-only bookmark controls and viewer fullscreen icon](T4.9-icon-controls.md) | UI | M | T9.2, T9.3, T8.8 | done (browser pass manual) |
+| T4.10 | [Gallery tile opens the viewer at that exact media item](T4.10-gallery-tile-opens-viewer.md) | UI | M | T4.7, T7.2, T8.1, T8.4, T8.8 | done (browser pass manual) |
+| T4.11 | [Group the gallery by post and paginate by posts](T4.11-gallery-grouped-by-post.md) | UI | L | T4.7, T7.2, T7.6, T4.9, T4.10 | done (browser pass manual) |
 | T5.1 | [Incremental sync](T5.1-incremental-sync.md) | Sync | M | T2.1, T2.3 | done |
 | T5.2 | [Full rescan and run history](T5.2-rescan-history.md) | Sync | S | T2.3, T4.2 | done |
 | T5.3 | [Acceptance run, README, packaging](T5.3-acceptance.md) | Ship | M | all | done |
@@ -46,6 +49,7 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T7.4 | [Post page playback for normalized video-backed attachments](T7.4-video-playback-mislabelled.md) | Media | S | T4.4, T7.1 | done |
 | T7.5 | [Explain empty tags for upstream creators](T7.5-empty-upstream-tags.md) | Media | S | T4.3 | done |
 | T7.6 | [Sort video sections by duration (longest / shortest first)](T7.6-gallery-duration-sort.md) | Media | M | T7.2, T7.4 | done |
+| T7.7 | [Gallery image/video/gif tabs instead of a creator-page Videos button](T7.7-gallery-kind-tabs.md) | Media | M | T7.2, T7.6, T4.11, T4.3 | done |
 | T8.1 | [Fullscreen viewer route, entry point and data contract](T8.1-viewer-route-data.md) | Viewer | M | T4.7, T7.1 | done |
 | T8.2 | [Fullscreen shell and media rendering](T8.2-viewer-fullscreen-shell.md) | Viewer | M | T8.1 | done |
 | T8.3 | [Invisible directional controls: images, posts and input methods](T8.3-viewer-directional-controls.md) | Viewer | M | T8.2 | done |
@@ -54,11 +58,21 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T8.6 | [Left/right at a post's edge crosses into the neighbouring post](T8.6-viewer-horizontal-post-crossing.md) | Viewer | M | T8.3, T8.5 | done |
 | T8.7 | [Preload neighbouring images in the fullscreen viewer](T8.7-viewer-neighbour-image-preload.md) | Viewer | M | T8.1, T8.3, T8.6, T6.5 | done |
 | T8.8 | [Preload across post boundaries and add a fullscreen toggle button](T8.8-viewer-cross-post-preload-and-fullscreen.md) | Viewer | M | T8.5, T8.6, T8.7 | done (browser pass manual) |
-| T8.9 | [Fluid transitions between viewer media](T8.9-viewer-fluid-transitions.md) | Viewer | M | T8.1, T8.2, T8.3, T8.5, T8.7, T8.8 | todo |
-| T8.10 | [Finger-following swipe with rubber-band edges](T8.10-viewer-finger-following-swipe.md) | Viewer | M | T8.3, T8.6, T8.8, T8.9 | todo |
+| T8.9 | [Fluid transitions between viewer media](T8.9-viewer-fluid-transitions.md) | Viewer | M | T8.1, T8.2, T8.3, T8.5, T8.7, T8.8 | done (browser pass manual) |
+| T8.10 | [Finger-following swipe with rubber-band edges](T8.10-viewer-finger-following-swipe.md) | Viewer | M | T8.3, T8.6, T8.8, T8.9 | done (superseded by T8.11) |
+| T8.11 | [Smooth finger-following swipes and remove click zones](T8.11-viewer-swipe-smoothness-and-remove-zones.md) | Viewer | L | T8.9, T8.10 | reopened — see T8.12 |
+| T8.12 | [Stack the viewer media layers and unstick the swipe](T8.12-viewer-stacked-media-layers.md) | Viewer | M | T8.11 | todo |
+| T8.13 | [Make viewer preload predictive and decode-ready](T8.13-viewer-predictive-preload-and-decode.md) | Viewer | M | T8.7, T8.8, T8.12 | todo |
+| T8.14 | [Make boundary payloads eager and preload priorities predictive](T8.14-viewer-post-payload-and-priority-preload.md) | Viewer | M | T8.13 | done (automated; browser pass pending) |
+| T8.15 | [Add left/right tap zones to the viewer](T8.15-viewer-left-right-tap-zones.md) | Viewer | S | T8.12, T8.14 | todo |
+| T8.16 | [Embed the creator viewer manifest and media links](T8.16-viewer-embedded-creator-manifest.md) | Viewer | L | T8.1, T8.14 | done (automated; browser pass pending) |
+| T8.17 | [Fix viewer media that never paints: videos and stuck black images](T8.17-viewer-videos-and-black-images.md) | Viewer | M | T8.2, T8.5, T8.16 | todo |
+| T8.18 | [Overhaul viewer image preloading into a paint-ready pipeline](T8.18-viewer-preload-pipeline-overhaul.md) | Viewer | L | T8.12, T8.13, T8.14, T8.17 | todo |
+| T8.19 | [Make the viewer filter-, sort- and gallery-context-aware](T8.19-viewer-filter-and-context-awareness.md) | Viewer | L | T4.11, T7.7, T8.1, T8.16 | todo |
 | T9.1 | [Local bookmark storage, repository and toggle endpoints](T9.1-bookmark-storage-and-endpoints.md) | Bookmarks | M | T0.2, T4.4 | done |
 | T9.2 | [Bookmark controls on posts, attachments, gallery tiles and the viewer](T9.2-bookmark-controls-ui.md) | Bookmarks | M | T9.1, T4.3, T4.4, T4.7, T8.5 | done (browser pass manual) |
 | T9.3 | [Bookmarks library page and navigation](T9.3-bookmarks-library-page.md) | Bookmarks | M | T9.1, T9.2, T4.1, T4.7 | done |
+| T9.4 | [Group bookmarks by creator and add a bookmark-only viewer](T9.4-bookmarks-by-creator-and-viewer.md) | Bookmarks | L | T9.3, T4.10, T4.11, T8.8 | done |
 
 ## Build order
 
@@ -78,15 +92,25 @@ T3.4 → T7.1 → T7.2 (gallery)
              ↘ T7.3 (creator page)
              ↘ T7.4 (post page)
 T7.2 → T7.6 (duration sort)
+T7.6 + T4.11 → T7.7 (gallery kind tabs)
 T4.3 → T7.5 (empty tags)
 T7.1 → T8.1 → T8.2 → T8.3 → T8.4 → T8.5 (fullscreen viewer)
 T8.3 + T8.5 → T8.6 (left/right crosses posts)
 T8.6 → T8.7 → T8.8 (preload across posts, fullscreen button)
 T8.7 + T8.8 → T8.9 (fluid viewer transitions)
 T8.6 + T8.8 + T8.9 → T8.10 (finger-following swipe)
+T8.10 → T8.11 (smooth swipe geometry, axis lock, remove click zones)
+T8.11 → T8.12 (stack the media layers, unstick the swipe)
+T8.12 → T8.13 (make the three-ahead/three-behind preload decode-ready)
+T8.2 + T8.5 + T8.16 → T8.17 (videos and stuck black images)
+T8.12 + T8.13 + T8.14 + T8.17 → T8.18 (paint-ready preload pipeline)
+T4.11 + T7.7 + T8.1 + T8.16 → T8.19 (filter-aware, sort-aware viewer)
 T0.2 + T4.4 → T9.1 → T9.2 (bookmark controls)
                      ↘ T9.3 (bookmarks library)
-T4.7 + T7.2 + T8.1 + T8.4 + T9.2 → T4.8 (gallery action menu)
+T9.3 + T4.10 + T4.11 + T8.8 → T9.4 (bookmarks by creator, bookmark viewer)
+T9.2 + T9.3 + T8.8 → T4.9 (icon-only bookmark and fullscreen controls)
+T4.9 + T4.7 + T7.2 + T8.1 + T8.4 + T8.8 → T4.10 (tile opens viewer at exact item)
+T4.10 + T7.6 → T4.11 (gallery grouped by post)
 T7.0 audit first
 T5.3 last
 ```

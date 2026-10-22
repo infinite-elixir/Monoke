@@ -1,5 +1,10 @@
 {% extends "base.html" %}
-{% set name = creator.display_name or creator.name or (creator.service ~ "/" ~ creator.service_id) %}
+{% set is_bookmarks = state and state.mode == "bookmarks" %}
+{% if is_bookmarks %}
+  {% set name = "Bookmarks" %}
+{% else %}
+  {% set name = creator.display_name or creator.name or (creator.service ~ "/" ~ creator.service_id) %}
+{% endif %}
 
 {% block title %}{{ name }} viewer · Monoke{% endblock %}
 {% block body_attrs %} class="viewer-page"{% endblock %}
@@ -13,25 +18,41 @@
         Close viewer
       </button>
       <button type="button" class="viewer-fullscreen" data-viewer-fullscreen
-              aria-pressed="false" aria-label="Enter fullscreen">Fullscreen</button>
+              data-fullscreen-state="enter"
+              aria-pressed="false" aria-label="Enter fullscreen">
+        <svg class="viewer-icon viewer-icon-expand" viewBox="0 0 24 24"
+             aria-hidden="true" focusable="false">
+          <path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"></path>
+        </svg>
+        <svg class="viewer-icon viewer-icon-contract" viewBox="0 0 24 24"
+             aria-hidden="true" focusable="false">
+          <path d="M8 3v5H3M16 3v5h5M3 16h5v5M21 16h-5v5"></path>
+        </svg>
+      </button>
 
       <div class="viewer-stage" data-viewer-stage>
+        <div class="viewer-paint-bench" data-viewer-paint-bench
+             aria-hidden="true" inert></div>
         <div class="viewer-media" data-viewer-media>
           {% if item and item.url %}
             {% if item.kind == "video" %}
-              <video class="viewer-media-el" data-viewer-media-el controls playsinline
-                     preload="metadata"
+              <video class="viewer-media-el viewer-video" data-viewer-media-el
+                     controls playsinline preload="metadata"
                      {% if item.thumb_url %}poster="{{ item.thumb_url }}"{% endif %}
+                     {% if item.width %}width="{{ item.width }}"{% endif %}
+                     {% if item.height %}height="{{ item.height }}"{% endif %}
                      src="{{ item.url }}"
                      aria-label="{{ item.filename }}"></video>
             {% else %}
-              <img class="viewer-media-el" data-viewer-media-el src="{{ item.url }}"
-                   alt="{{ state.post.title or item.filename }}" decoding="async">
+              <img class="viewer-media-el viewer-image" data-viewer-media-el src="{{ item.url }}"
+                     alt="{% if is_bookmarks %}{{ item.post_title or item.filename }}{% else %}{{ state.post.title or item.filename }}{% endif %}" decoding="async"
+                     {% if item.width %}width="{{ item.width }}"{% endif %}
+                     {% if item.height %}height="{{ item.height }}"{% endif %}>
             {% endif %}
           {% else %}
             <div class="viewer-unavailable">
               <p>Media unavailable</p>
-              <a href="{{ state.post.post_url }}">Open the post</a>
+              <a href="{% if is_bookmarks %}{{ item.post_url }}{% else %}{{ state.post.post_url }}{% endif %}">Open the post</a>
             </div>
           {% endif %}
         </div>
@@ -46,35 +67,28 @@
         {% if show_hint %}
           <div class="viewer-hint" data-viewer-hint role="status">
             <div class="viewer-hint-grid">
-              <p class="viewer-hint-item">
-                <span class="viewer-hint-key" aria-hidden="true">↑</span>
-                <span class="viewer-hint-label">Newer post</span>
-              </p>
-              <p class="viewer-hint-item">
-                <span class="viewer-hint-key" aria-hidden="true">↓</span>
-                <span class="viewer-hint-label">Older post</span>
-              </p>
+              {% if not is_bookmarks %}
+                <p class="viewer-hint-item">
+                  <span class="viewer-hint-key" aria-hidden="true">↑</span>
+                  <span class="viewer-hint-label">Older post</span>
+                </p>
+                <p class="viewer-hint-item">
+                  <span class="viewer-hint-key" aria-hidden="true">↓</span>
+                  <span class="viewer-hint-label">Newer post</span>
+                </p>
+              {% endif %}
               <p class="viewer-hint-item">
                 <span class="viewer-hint-key" aria-hidden="true">←</span>
-                <span class="viewer-hint-label">Previous image</span>
+                <span class="viewer-hint-label">{% if is_bookmarks %}Previous bookmark{% else %}Previous image{% endif %}</span>
               </p>
               <p class="viewer-hint-item">
                 <span class="viewer-hint-key" aria-hidden="true">→</span>
-                <span class="viewer-hint-label">Next image</span>
+                <span class="viewer-hint-label">{% if is_bookmarks %}Next bookmark{% else %}Next image{% endif %}</span>
               </p>
             </div>
             <p class="viewer-hint-note">Esc to close · F for fullscreen · first move hides this</p>
           </div>
         {% endif %}
-
-        <button type="button" class="viewer-zone viewer-zone-prev-image"
-                data-viewer-action="prev-image" aria-label="Previous media"></button>
-        <button type="button" class="viewer-zone viewer-zone-next-image"
-                data-viewer-action="next-image" aria-label="Next media"></button>
-        <button type="button" class="viewer-zone viewer-zone-prev-post"
-                data-viewer-action="prev-post" aria-label="Newer post"></button>
-        <button type="button" class="viewer-zone viewer-zone-next-post"
-                data-viewer-action="next-post" aria-label="Older post"></button>
       </div>
 
       <p class="viewer-flash" data-viewer-flash role="alert" hidden></p>

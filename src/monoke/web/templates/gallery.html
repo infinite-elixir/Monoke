@@ -25,6 +25,10 @@
         {% if stats.posts %}{% set _ = stat_parts.append("across " ~ stats.posts ~ (" post" if stats.posts == 1 else " posts")) %}{% endif %}
         {% if stat_parts %}{{ stat_parts|join(" · ")|safe }}{% else %}No media archived yet{% endif %}
       </p>
+      <p class="creator-meta muted">
+        Media is grouped by post, newest posts first. Each section keeps that
+        post's images, GIFs and videos together.
+      </p>
       {% if stats.audio %}
         <p class="creator-meta muted">
           {{ stats.audio }} audio {% if stats.audio == 1 %}attachment plays{% else %}attachments play{% endif %}
@@ -34,26 +38,31 @@
     </div>
 
     <div class="creator-actions">
-      <a class="button" href="/c/{{ creator.id }}/viewer?from=gallery" data-viewer-return>Open viewer</a>
+      <a class="button" href="{{ viewer_url }}" data-viewer-return>Open viewer</a>
       <a class="button" href="/c/{{ creator.id }}">Posts</a>
       <a class="button" href="/c/{{ creator.id }}/links">Links</a>
     </div>
   </header>
 
+  <nav class="gallery-kind-tabs" aria-label="Media type">
+    {% for tab in kind_tabs %}
+      <a class="gallery-kind-tab{% if tab.current %} is-current{% endif %}"
+         href="{{ tab.url }}"
+         {% if tab.current %}aria-current="page"{% endif %}>
+        {{ tab.label }} <span class="gallery-kind-count">{{ tab.count }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+
   <form class="filters gallery-filters" method="get" action="/c/{{ creator.id }}/gallery">
+    {% if filters.kind %}
+      <input type="hidden" name="kind" value="{{ filters.kind }}">
+    {% endif %}
+
     <div class="filter-field filter-search">
       <label for="gallery-q">Search</label>
       <input id="gallery-q" type="search" name="q" value="{{ filters.q or '' }}"
              placeholder="post title or caption">
-    </div>
-
-    <div class="filter-field">
-      <label for="gallery-kind">Kind</label>
-      <select id="gallery-kind" name="kind">
-        {% for key, label in kind_labels.items() %}
-          <option value="{{ key }}"{% if (filters.kind or "") == key %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
     </div>
 
     <div class="filter-field">
@@ -126,86 +135,97 @@
     </div>
   </form>
 
-  {% if images %}
-    <div class="gallery-grid" data-gallery>
-      {% for image in images %}
-        <figure class="gallery-tile">
-          <a class="gallery-thumb"
-             href="{{ image.url }}"
-             target="_blank" rel="noopener noreferrer"
-             data-gallery-item
-             data-kind="{{ image.kind }}"
-             data-full="{{ image.url }}"
-             data-title="{{ image.post_title or image.filename }}"
-             data-post-url="{{ image.post_url }}"
-             aria-label="{{ 'Play' if image.is_video else 'Open' }} {{ image.post_title or image.filename }}{% if image.is_video %} (video){% endif %}">
-            {% if image.thumb_url %}
-              <img class="thumb" src="{{ image.thumb_url }}" alt="" loading="lazy" decoding="async">
-            {% else %}
-              <span class="thumb-placeholder">{{ image.filename[0]|upper }}</span>
-            {% endif %}
-            {% if image.is_video %}
-              <span class="gallery-play" aria-hidden="true">▶</span>
-              {% if image.duration_ms %}<span class="gallery-badge gallery-duration">{{ image.duration_ms|human_duration }}</span>{% elif not image.is_gif %}<span class="gallery-badge">VIDEO</span>{% endif %}
-            {% elif image.is_gif %}
-              <span class="gallery-badge">GIF</span>
-            {% endif %}
-          </a>
-          {{ bookmark_button(
-            "/c/" ~ creator.id ~ "/media/" ~ image.sha256 ~ "/bookmark",
-            image.is_bookmarked,
-            filters.url_for(creator.id),
-            "video" if image.is_video else ("gif" if image.is_gif else "image"),
-            image.post_title or image.filename,
-            compact=True,
-            extra_class="gallery-bookmark"
-          ) }}
-          <figcaption class="gallery-meta">
-            <a class="gallery-title" href="{{ image.post_url }}">{{ image.post_title or "Untitled post" }}</a>
-            <span class="gallery-facts">
-              {% if image.dimensions %}{{ image.dimensions }} · {% endif %}{{ image.bytes|human_bytes }}
-              {% if image.copies > 1 %} · in {{ image.copies }} posts{% endif %}
-            </span>
-          </figcaption>
-        </figure>
+  {% if groups %}
+    <div class="gallery-posts">
+      {% for group in groups %}
+        <section class="gallery-post" aria-labelledby="gallery-post-{{ group.id }}">
+          <header class="gallery-post-header">
+            <h2 id="gallery-post-{{ group.id }}">
+              <a href="{{ group.post_url }}">{{ group.title or "Untitled post" }}</a>
+            </h2>
+            <p class="gallery-post-meta">
+              <time datetime="{{ group.published|short_date }}">{{ group.published|short_date }}</time>
+              <span aria-hidden="true">·</span>
+              <span>{{ group.count_label }}</span>
+              <span aria-hidden="true">·</span>
+              <a id="gallery-post-{{ group.id }}-viewer"
+                 href="{{ group.viewer_url }}"
+                 data-viewer-open
+                 data-viewer-focus="#gallery-post-{{ group.id }}-viewer">Open post in viewer</a>
+            </p>
+          </header>
+
+          <div class="gallery-grid" data-gallery>
+            {% for image in group.media %}
+              <figure class="gallery-tile">
+                <a class="gallery-thumb"
+                   id="{{ image.gallery_id }}"
+                   href="{{ image.viewer_url }}"
+                   data-viewer-open
+                   data-viewer-focus="#{{ image.gallery_id }}"
+                   data-kind="{{ image.kind }}"
+                   aria-label="Open in viewer: {{ group.title or image.filename }}{% if image.is_video %} (video){% elif image.is_gif %} (gif){% endif %}">
+                  {% if image.thumb_url %}
+                    <img class="thumb" src="{{ image.thumb_url }}" alt="" loading="lazy" decoding="async">
+                  {% else %}
+                    <span class="thumb-placeholder">{{ image.filename[0]|upper }}</span>
+                  {% endif %}
+                  {% if image.is_video %}
+                    <span class="gallery-play" aria-hidden="true">▶</span>
+                    {% if image.duration_ms %}<span class="gallery-badge gallery-duration">{{ image.duration_ms|human_duration }}</span>{% elif not image.is_gif %}<span class="gallery-badge">VIDEO</span>{% endif %}
+                  {% elif image.is_gif %}
+                    <span class="gallery-badge">GIF</span>
+                  {% endif %}
+                </a>
+                {{ bookmark_button(
+                  "/c/" ~ creator.id ~ "/media/" ~ image.sha256 ~ "/bookmark",
+                  image.is_bookmarked,
+                  filters.url_for(creator.id),
+                  "video" if image.is_video else ("gif" if image.is_gif else "image"),
+                  group.title or image.filename,
+                  compact=True,
+                  extra_class="gallery-bookmark"
+                ) }}
+                <figcaption class="gallery-meta">
+                  <span class="gallery-title" title="{{ image.filename }}">{{ image.filename }}</span>
+                  <span class="gallery-facts">
+                    {% if image.dimensions %}{{ image.dimensions }} · {% endif %}{{ image.bytes|human_bytes }}
+                  </span>
+                </figcaption>
+              </figure>
+            {% endfor %}
+          </div>
+        </section>
       {% endfor %}
     </div>
 
     {% include "partials/pager.html" %}
   {% elif stats.images or stats.videos or stats.gifs %}
-    <section class="empty-state">
-      <h2>No media match these filters</h2>
-      <p>Nothing in this archive matches the current search, kind, tag, orientation or size filters.</p>
-      <a class="button button-primary" href="{{ ref_url }}">Clear filters</a>
-    </section>
+    {% if filters.kind %}
+      <section class="empty-state">
+        <h2>No {{ kind_word }} match these filters</h2>
+        <p>Nothing in this archive matches the current search, tag, orientation or size filters on this tab.</p>
+        <div class="empty-actions">
+          <a class="button button-primary" href="{{ filters.url_for(creator.id, kind=None) }}">All media</a>
+          {% if filters.active %}
+            <a class="button" href="{{ ref_url }}">Clear filters</a>
+          {% endif %}
+        </div>
+      </section>
+    {% else %}
+      <section class="empty-state">
+        <h2>No media match these filters</h2>
+        <p>Nothing in this archive matches the current search, tag, orientation or size filters.</p>
+        <a class="button button-primary" href="{{ ref_url }}">Clear filters</a>
+      </section>
+    {% endif %}
   {% else %}
     <section class="empty-state">
       <h2>No media in this archive</h2>
-      <p>Sync the creator and every image, GIF and video attachment will appear here, deduplicated and in one grid.</p>
+      <p>Sync the creator and every image, GIF and video attachment will appear here, grouped by post.</p>
       <form method="post" action="/c/{{ creator.id }}/sync">
         <button class="button button-primary" type="submit">Sync now</button>
       </form>
     </section>
   {% endif %}
-
-  <div class="lightbox" id="gallery-lightbox" role="dialog" aria-modal="true"
-       aria-label="Media viewer" hidden>
-    <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close viewer">×</button>
-    <button type="button" class="lightbox-nav lightbox-prev" data-lightbox-prev
-            aria-label="Previous item">‹</button>
-    <figure class="lightbox-figure">
-      <img class="lightbox-image" data-lightbox-image alt="">
-      <video class="lightbox-video" data-lightbox-video controls playsinline preload="none" hidden></video>
-      <figcaption class="lightbox-caption">
-        <span class="lightbox-title" data-lightbox-title></span>
-        <span class="lightbox-meta">
-          <span data-lightbox-counter></span>
-          <a data-lightbox-post href="#">Go to post</a>
-          <a data-lightbox-original href="#" target="_blank" rel="noopener noreferrer">Open original</a>
-        </span>
-      </figcaption>
-    </figure>
-    <button type="button" class="lightbox-nav lightbox-next" data-lightbox-next
-            aria-label="Next item">›</button>
-  </div>
 {% endblock %}
