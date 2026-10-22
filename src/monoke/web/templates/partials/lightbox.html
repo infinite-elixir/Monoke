@@ -1,0 +1,171 @@
+{# One overlay and one controller (T11.1). Pages that can open media include
+   this partial and load lightbox.js. A tile opens the compact lightbox in
+   place; expanding turns the same DOM into the full-viewport viewer.
+   T11.2 adds the single sticky bottom control bar and the hide/show handle.
+   T11.5 moves the post title to a top caption and puts the secondary post
+   actions behind a three-dot disclosure in the bar. #}
+{% from "partials/bookmark_button.html" import bookmark_button %}
+{% set bookmark_post = groups[0].service_id if groups is defined and groups else '' %}
+{# The gallery knows its creator; the bookmarks library mixes creators and
+   puts the id on the opened tile instead, so the root stays empty there. #}
+{% set overlay_creator = creator.id if creator is defined else '' %}
+{# Each host page sets this: the gallery returns to the filtered gallery,
+   the bookmarks library preserves its view/creator/page query string. #}
+{% if bookmark_next is not defined %}{% set bookmark_next = "/" %}{% endif %}
+<div class="lightbox" id="gallery-lightbox" role="dialog"
+     aria-modal="true" aria-label="Media viewer" tabindex="-1"
+     data-lightbox-root data-state="closed"
+     data-creator-id="{{ overlay_creator }}" hidden>
+  <button type="button" class="lightbox-close" data-lightbox-close
+          aria-label="Close viewer">×</button>
+  {# Top caption (T11.5): muted, one line, hidden alongside the bar. The
+     announcer and the media alt already carry the title, so it is visual
+     chrome rather than a second accessible copy. #}
+  <p class="lightbox-caption-title" data-lightbox-title
+     aria-hidden="true"></p>
+  <button type="button" class="lightbox-nav lightbox-prev" data-lightbox-prev
+          aria-label="Previous media">‹</button>
+
+  <figure class="lightbox-figure">
+    <div class="viewer-stage" data-lightbox-stage>
+      <div class="viewer-media" data-lightbox-media>
+        <img class="viewer-media-el lightbox-image" data-lightbox-image alt="">
+        <video class="viewer-media-el lightbox-video" data-lightbox-video
+               controls playsinline preload="none" hidden></video>
+      </div>
+
+      {# T11.7: delayed status pill for the visible medium. Visual only: it
+         never takes focus or pointer input, and hidden media never flashes it. #}
+      <p class="viewer-loading" data-lightbox-loading role="status"
+         aria-live="polite" hidden>
+        <span class="viewer-loading-dot" aria-hidden="true"></span>
+        <span>Loading…</span>
+      </p>
+
+      <p class="viewer-announcer" data-lightbox-announcer role="status"
+         aria-live="polite" aria-atomic="true"></p>
+      <p class="viewer-toast" data-lightbox-toast aria-hidden="true" hidden></p>
+      <p class="viewer-flash" data-lightbox-flash role="alert" hidden></p>
+
+      <div class="viewer-hint" data-lightbox-hint role="status">
+        <div class="viewer-hint-grid">
+          <p class="viewer-hint-item">
+            <span class="viewer-hint-key" aria-hidden="true">↑</span>
+            <span class="viewer-hint-label">Newer post</span>
+          </p>
+          <p class="viewer-hint-item">
+            <span class="viewer-hint-key" aria-hidden="true">↓</span>
+            <span class="viewer-hint-label">Older post</span>
+          </p>
+          <p class="viewer-hint-item">
+            <span class="viewer-hint-key" aria-hidden="true">←</span>
+            <span class="viewer-hint-label">Previous image</span>
+          </p>
+          <p class="viewer-hint-item">
+            <span class="viewer-hint-key" aria-hidden="true">→</span>
+            <span class="viewer-hint-label">Next image</span>
+          </p>
+        </div>
+        <p class="viewer-hint-note">Esc to close · F for fullscreen · first move hides this</p>
+      </div>
+
+      <button type="button" class="viewer-zone viewer-zone-prev-image"
+              data-viewer-action="prev-image" aria-label="Previous media"></button>
+      <button type="button" class="viewer-zone viewer-zone-next-image"
+              data-viewer-action="next-image" aria-label="Next media"></button>
+    </div>
+
+    {# The one slim sticky control bar (T11.5). It is visible on open and stays
+       put: it only hides when the hide button pins it away. The secondary post
+       actions live in the three-dot disclosure above it. #}
+    <figcaption class="lightbox-caption lightbox-controls"
+                id="lightbox-controls" data-lightbox-controls>
+      <div class="lightbox-controls-posts">
+        <button type="button" class="lightbox-control-button"
+                data-lightbox-post-prev aria-label="Newer post"
+                title="Newer post" disabled>
+          <span aria-hidden="true">↑</span>
+        </button>
+        <button type="button" class="lightbox-control-button"
+                data-lightbox-post-next aria-label="Older post"
+                title="Older post" disabled>
+          <span aria-hidden="true">↓</span>
+        </button>
+      </div>
+
+      <span class="lightbox-counter" data-lightbox-counter></span>
+
+      <div class="lightbox-controls-actions">
+        <div class="lightbox-more">
+          <button type="button" class="lightbox-icon lightbox-icon-control"
+                  data-lightbox-more aria-haspopup="true"
+                  aria-expanded="false" aria-controls="lightbox-menu"
+                  aria-label="More actions" title="More actions">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"></path>
+            </svg>
+          </button>
+          {# A plain disclosure, not an ARIA menu: ordinary links and the
+             shared bookmark form (T4.9 contract). #}
+          <div class="lightbox-menu" id="lightbox-menu" data-lightbox-menu
+               role="group" aria-label="Post actions" hidden>
+            <a class="lightbox-menu-item" data-lightbox-post href="#">Go to post</a>
+            <a class="lightbox-menu-item" data-lightbox-original href="#"
+               target="_blank" rel="noopener noreferrer">Open original</a>
+            <span class="lightbox-menu-item lightbox-bookmark">
+              {{ bookmark_button(
+                "/c/" ~ overlay_creator ~ "/p/" ~ bookmark_post ~ "/bookmark",
+                False,
+                bookmark_next,
+                "post",
+                "this post",
+                compact=True,
+                extra_class="lightbox-bookmark-button"
+              ) }}
+            </span>
+          </div>
+        </div>
+        <button type="button" class="lightbox-icon lightbox-icon-control"
+                data-lightbox-expand
+                aria-pressed="false" aria-label="Expand viewer" title="Expand viewer">
+          <svg class="lightbox-icon-expand" viewBox="0 0 24 24"
+               aria-hidden="true" focusable="false">
+            <path d="M4 20 20 4M20 4h-6M20 4v6"></path>
+          </svg>
+          <svg class="lightbox-icon-contract" viewBox="0 0 24 24"
+               aria-hidden="true" focusable="false">
+            <path d="M20 4 4 20M4 20h6M4 20v-6"></path>
+          </svg>
+        </button>
+        <button type="button" class="lightbox-icon lightbox-icon-control"
+                data-lightbox-fullscreen
+                data-fullscreen-state="enter" aria-pressed="false"
+                aria-label="Enter fullscreen" title="Enter fullscreen">
+          <svg class="viewer-icon viewer-icon-expand" viewBox="0 0 24 24"
+               aria-hidden="true" focusable="false">
+            <path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"></path>
+          </svg>
+          <svg class="viewer-icon viewer-icon-contract" viewBox="0 0 24 24"
+               aria-hidden="true" focusable="false">
+            <path d="M8 3v5H3M16 3v5h5M3 16h5v5M21 16h-5v5"></path>
+          </svg>
+        </button>
+        <button type="button" class="lightbox-icon lightbox-icon-control"
+                data-lightbox-hide aria-label="Hide controls" title="Hide controls">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M5 9l7 7 7-7"></path>
+          </svg>
+        </button>
+      </div>
+    </figcaption>
+  </figure>
+
+  <button type="button" class="lightbox-controls-handle"
+          data-lightbox-controls-handle aria-controls="lightbox-controls"
+          aria-label="Show controls" hidden>
+    Show controls <span aria-hidden="true">⌃</span>
+  </button>
+
+  <button type="button" class="lightbox-nav lightbox-next" data-lightbox-next
+          aria-label="Next media">›</button>
+</div>

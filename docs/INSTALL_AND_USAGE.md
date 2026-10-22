@@ -14,7 +14,7 @@ behavior, filters, exports, configuration, backups and troubleshooting.
   - [6.3 Creator page](#63-creator-page)
   - [6.4 Post page](#64-post-page)
   - [6.5 Gallery](#65-gallery)
-  - [6.6 Fullscreen viewer](#66-fullscreen-viewer)
+  - [6.6 Merged lightbox / viewer](#66-merged-lightbox--viewer)
   - [6.7 Links explorer](#67-links-explorer)
   - [6.8 Bookmarks](#68-bookmarks)
 - [7. How sync works](#7-how-sync-works)
@@ -254,8 +254,8 @@ The footer shows the active data directory, the last sync time and the app versi
 
 Keyboard:
 - `Tab` walks the page normally; there is a skip link at the top.
-- In the gallery lightbox: `←`/`→` change item, `Esc` closes.
-- In the fullscreen viewer: see [6.6](#66-fullscreen-viewer).
+- In the merged lightbox: `←`/`→` change item, `Esc` steps back one layer.
+- In the expanded viewer: see [6.6](#66-merged-lightbox--viewer).
 
 ### 6.2 Home / Creators
 
@@ -286,8 +286,7 @@ The creator page is the main browsing screen.
 
 | Button | Action |
 |---|---|
-| **View latest** | Opens the fullscreen viewer at the newest post with media. |
-| **Gallery** | Opens the per-creator media grid. |
+| **Gallery** | Opens the per-creator media grid and merged lightbox/viewer. |
 | **Videos** | Appears when the archive has videos; opens the gallery filtered to video. |
 | **Sync** | Starts an incremental background sync. Disabled while a run is active. |
 | **Delete** | Confirms, then deletes this creator's whole archive. |
@@ -374,12 +373,14 @@ Click a post row to open the post. The page has:
 
 ![Gallery](../example_screenshots/Screenshot%20from%202026-10-21%2018-52-54.png)
 
-Each creator has a media grid at `/c/{id}/gallery`.
+Each creator has a media grid at `/c/{id}/gallery`, grouped into one section per post,
+newest posts first. Pagination counts posts, so a post's media stay together.
 
 - **Header** shows image, video and post counts plus **Open viewer**, **Posts** and
   **Links** buttons.
 - **Search** matches post title and caption.
-- **Kind** filters all media, images, videos or GIFs. Audio is not shown in the grid.
+- **Kind tabs** filter all media, images, videos or GIFs, with a count on each tab.
+  Audio is not shown in the grid.
 - **Sort** supports newest, oldest, longest first and shortest first. Duration sorts
   apply to videos/GIFs; still images sink below timed media. In a pure image gallery the
   duration options are hidden.
@@ -389,24 +390,31 @@ Each creator has a media grid at `/c/{id}/gallery`.
 - **From / To** filter by publication date.
 - **Apply** runs the filters; **Clear** resets them.
 
-Each tile shows a blurred thumbnail (unless blur is off), its `Bookmark` control, title,
-dimensions and file size. Clicking a tile opens the lightweight lightbox: arrow keys move,
-`Esc` closes, and links go to the post or the original file after **Load**.
+Each tile shows a blurred thumbnail (unless blur is off), title, dimensions and file
+size, plus a three-dot action menu whose only action is the icon-only bookmark toggle.
+Clicking a tile opens the lightweight lightbox: arrow keys move, `Esc` closes, and links
+go to the post or the original file after **Load**. Menu clicks never open the lightbox.
 
-Use **Open viewer** for the fullscreen experience across posts.
+Click any tile, or **Open viewer** for the first tile on the page.
 
-### 6.6 Fullscreen viewer
+### 6.6 Merged lightbox / viewer
 
-Open it from **View latest** on the creator page or **Open viewer** on the gallery.
+A gallery tile opens the lightbox in place. The same surface expands into the
+full-viewport viewer and can then request browser fullscreen; there is no separate
+viewer page and no page navigation.
 
 - Shows one media item at a time with a counter (`3 / 42`).
 - Media is loaded from the cum.st edge host; nothing is cached to disk.
-- Videos have native controls; images fill the stage.
+- Videos have native controls; images fill the stage when expanded.
+- Left/right steps through the post's media and crosses into a neighbouring post at
+  the edges; up/down jumps between posts.
 - The first-run hint shows `↑` newer post, `↓` older post, `←` previous image,
-  `→` next image, plus `Esc` to close and `F` for fullscreen. The hint disappears as soon
-  as you move.
-- Fullscreen is requested automatically on first interaction where the browser allows
-  it; `F` toggles it manually.
+  `→` next image, plus `Esc` to unwind a layer and `F` for fullscreen. The hint
+  appears in the expanded layer and disappears on the first move.
+- The expand control turns the compact lightbox into the full-viewport viewer;
+  `F` or the fullscreen control requests browser fullscreen.
+- `Esc` unwinds one layer at a time: browser fullscreen first, then the overlay.
+  The expand control collapses the viewer back to the compact lightbox.
 
 **Keyboard**
 
@@ -417,25 +425,20 @@ Open it from **View latest** on the creator page or **Open viewer** on the galle
 | `b` | Bookmark or unbookmark the current media item. |
 | `Shift+B` | Bookmark or unbookmark the current post. |
 | `f` | Toggle fullscreen. |
-| `Esc` | Exit fullscreen first, then close the viewer. |
+| `Esc` | Exit fullscreen first, then close the overlay. |
 | `Tab` / `Shift+Tab` | Keep focus inside the viewer. |
 
 **Mouse and touch** — wheel up/down moves between posts, wheel left/right moves between
 media. Swipe horizontally for media and vertically for posts. Click zones on the left,
 right, top and bottom edges do the same.
 
-Query parameters (useful for bookmarks):
+The merged overlay is a page state, not a route: opening or navigating it does not
+change the gallery URL, so filters and pagination stay exactly where they were.
+`?hint=0` and `?quiet=1` on the gallery suppress the first-run hint.
 
-```text
-/c/{creator}/viewer                    # latest post with media
-/c/{creator}/viewer?post={post_id}     # a specific post
-/c/{creator}/viewer?post={post_id}&i=2 # third media item in that post
-/c/{creator}/viewer?from=gallery       # return to the gallery on close
-/c/{creator}/viewer?hint=0             # skip the first-run hint
-/c/{creator}/viewer?quiet=1            # minimal page for diagnostics
-```
-
-The viewer also exposes read-only JSON at `/c/{creator}/viewer/data?post={post_id}`.
+The controller uses read-only JSON at `/c/{creator}/viewer/data?post={post_id}` for
+the post playlist, neighbouring posts and preloading. It is not a viewer page and
+never renders HTML.
 
 ### 6.7 Links explorer
 
@@ -481,10 +484,13 @@ Bookmarks are local to your database and survive re-syncs. Upstream deletion doe
 remove them.
 
 - **All / Posts / Media** tabs with counts.
-- **Creator filter** narrows the library (shown once you have more than one creator).
+- With no creator filter, bookmarks are **grouped by creator**: each section shows up
+  to six newest bookmarks in the active tab plus a **View all N bookmarks** link.
+- **Creator filter** narrows the library to one creator and removes the six-item cap
+  (shown once you have more than one creator).
 - Post bookmarks show title, creator, date, "Bookmarked N ago" and a remove button.
-- Media bookmarks show a thumbnail tile with kind and dimensions, links to the post and
-  the original file, and a remove button.
+- Media bookmarks show a thumbnail tile with kind and dimensions, links to the post,
+  and a remove button.
 - **Posts** and **Media** tabs paginate independently (50 posts, 60 media items).
 
 Bookmark controls appear on creator post rows, post pages, attachment rows, gallery

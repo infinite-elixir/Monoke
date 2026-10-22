@@ -1,6 +1,6 @@
 # Monoke tickets
 
-49 tickets across 11 epics, targeting **cum.st** (OnlyHaven). Every ticket is a self-contained
+63 tickets across 11 epics, targeting **cum.st** (OnlyHaven). Every ticket is a self-contained
 markdown file with acceptance criteria, so it can be worked, reviewed, and closed independently.
 
 Plan: [`../PLAN.md`](../PLAN.md)
@@ -30,7 +30,9 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T4.5 | [Link explorer](T4.5-link-explorer.md) | UI | M | T4.3, T3.5 | done |
 | T4.6 | [Live sync progress](T4.6-sync-ui.md) | UI | M | T2.3, T4.2 | done |
 | T4.7 | [Per-creator gallery viewer](T4.7-gallery-viewer.md) | UI | M | T4.3, T3.4 | done (caption images deferred) |
-| T4.8 | [Gallery tile action menu: bookmark and start viewer here](T4.8-gallery-tile-action-menu.md) | UI | M | T4.7, T7.2, T8.1, T8.4, T9.1, T9.2 | todo |
+| T4.8 | [Gallery tile action menu: bookmark and start viewer here](T4.8-gallery-tile-action-menu.md) | UI | M | T4.7, T7.2, T8.1, T8.4, T9.1, T9.2 | todo (bookmark-only menu landed in T10.1) |
+| T4.9 | [Icon-only bookmark controls and viewer fullscreen icon](T4.9-icon-controls.md) | UI | M | T9.2, T9.3, T8.8 | done |
+| T4.11 | [Group the gallery by post and paginate by posts](T4.11-gallery-grouped-by-post.md) | UI | L | T4.7, T7.2, T7.6, T4.9 | done |
 | T5.1 | [Incremental sync](T5.1-incremental-sync.md) | Sync | M | T2.1, T2.3 | done |
 | T5.2 | [Full rescan and run history](T5.2-rescan-history.md) | Sync | S | T2.3, T4.2 | done |
 | T5.3 | [Acceptance run, README, packaging](T5.3-acceptance.md) | Ship | M | all | done |
@@ -46,6 +48,7 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T7.4 | [Post page playback for normalized video-backed attachments](T7.4-video-playback-mislabelled.md) | Media | S | T4.4, T7.1 | done |
 | T7.5 | [Explain empty tags for upstream creators](T7.5-empty-upstream-tags.md) | Media | S | T4.3 | done |
 | T7.6 | [Sort video sections by duration (longest / shortest first)](T7.6-gallery-duration-sort.md) | Media | M | T7.2, T7.4 | done |
+| T7.7 | [Gallery image/video/gif tabs instead of a creator-page Videos button](T7.7-gallery-kind-tabs.md) | Media | M | T7.2, T7.6, T4.11, T4.3 | done |
 | T8.1 | [Fullscreen viewer route, entry point and data contract](T8.1-viewer-route-data.md) | Viewer | M | T4.7, T7.1 | done |
 | T8.2 | [Fullscreen shell and media rendering](T8.2-viewer-fullscreen-shell.md) | Viewer | M | T8.1 | done |
 | T8.3 | [Invisible directional controls: images, posts and input methods](T8.3-viewer-directional-controls.md) | Viewer | M | T8.2 | done |
@@ -59,6 +62,17 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T9.1 | [Local bookmark storage, repository and toggle endpoints](T9.1-bookmark-storage-and-endpoints.md) | Bookmarks | M | T0.2, T4.4 | done |
 | T9.2 | [Bookmark controls on posts, attachments, gallery tiles and the viewer](T9.2-bookmark-controls-ui.md) | Bookmarks | M | T9.1, T4.3, T4.4, T4.7, T8.5 | done (browser pass manual) |
 | T9.3 | [Bookmarks library page and navigation](T9.3-bookmarks-library-page.md) | Bookmarks | M | T9.1, T9.2, T4.1, T4.7 | done |
+| T9.4 | [Group bookmarks by creator](T9.4-bookmarks-by-creator-and-viewer.md) | Bookmarks | M | T9.3, T4.11 | done |
+| T10.1 | [Merge `carasoul-swiping-viewer` without the viewer rewrite](T10.1-merge-carasoul-sans-viewer.md) | Integration | L | T4.9, T4.11, T7.7, T9.3 | done |
+| T11.1 | [Merge the gallery lightbox and the fullscreen viewer](T11.1-merge-lightbox-and-viewer.md) | Viewer | L | T4.7, T8.8, T9.2 | done (mobile auto-fullscreen deferred by decision) |
+| T11.2 | [Sticky viewer controls, visible post buttons and hide control](T11.2-sticky-viewer-controls.md) | Viewer | M | T11.1 | done (browser pass manual) |
+| T11.5 | [Slim viewer bar, top caption and overflow menu](T11.5-slim-viewer-bar-and-overflow-menu.md) | Viewer | S | T11.2 | done |
+| T11.3 | [Open media bookmarks in the merged lightbox-viewer](T11.3-bookmark-media-lightbox-viewer.md) | Bookmarks | M | T11.1, T9.4 | done |
+| T11.4 | [Remove the first-forward black flash when an image appears](T11.4-image-paint-no-black-flash.md) | Viewer | M | T11.1, T8.7, T8.8 | done |
+| T11.6 | [Viewer follows the active gallery filters](T11.6-viewer-follows-gallery-filters.md) | Viewer | M | T11.5, T7.7 | done |
+| T11.7 | [Loading indicator for slow viewer media](T11.7-viewer-loading-indicator.md) | Viewer | S | T11.5 | done |
+| T11.8 | [Remove the duplicate Gallery button](T11.8-remove-duplicate-gallery-button.md) | UI | S | T4.3 | done |
+| T11.9 | [Media bookmark in the viewer top bar, no hint overlay](T11.9-viewer-media-bookmark-and-no-hint.md) | Viewer | M | T11.3, T11.5 | todo |
 
 ## Build order
 
@@ -86,7 +100,20 @@ T8.7 + T8.8 → T8.9 (fluid viewer transitions)
 T8.6 + T8.8 + T8.9 → T8.10 (finger-following swipe)
 T0.2 + T4.4 → T9.1 → T9.2 (bookmark controls)
                      ↘ T9.3 (bookmarks library)
-T4.7 + T7.2 + T8.1 + T8.4 + T9.2 → T4.8 (gallery action menu)
+T9.3 + T4.11 → T9.4 (bookmarks by creator)
+T7.2 + T7.6 + T4.11 → T7.7 (gallery kind tabs)
+T9.2 + T9.3 + T8.8 → T4.9 (icon-only bookmark and fullscreen controls)
+T4.9 + T7.6 → T4.11 (gallery grouped by post)
+T4.9 + T4.11 + T7.7 + T9.3 → T10.1 (port source branch without viewer rewrite)
+T4.7 + T8.8 + T9.2 → T11.1 (merge lightbox and viewer, delete viewer page)
+T11.1 → T11.2 (sticky bottom controls and hide/show)
+T11.2 → T11.5 (slim bar, top caption and overflow menu)
+T11.5 + T7.7 → T11.6 (viewer follows the active gallery filters)
+T11.5 → T11.7 (loading pill for slow viewer media)
+T4.3 → T11.8 (remove the duplicate Gallery button)
+T11.1 + T9.4 → T11.3 (media bookmarks open the merged viewer)
+T11.1 + T8.7 + T8.8 → T11.4 (decode-before-paint, no forward black flash)
+T11.3 + T11.5 → T11.9 (media bookmark in the viewer top bar, no hint)
 T7.0 audit first
 T5.3 last
 ```

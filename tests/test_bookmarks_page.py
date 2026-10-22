@@ -192,7 +192,9 @@ def test_page_beyond_the_end_clamps_to_the_last_page(client, conn):
         add_post(conn, creator_id, number, title=f"Post {number}")
         db.toggle_post_bookmark(conn, creator_id, str(900000 + number))
 
-    body = client.get("/bookmarks?view=posts&page=999").text
+    body = client.get(
+        f"/bookmarks?view=posts&creator={creator_id}&page=999"
+    ).text
     assert "page 2 of 2" in body
     assert "Post 0" in body
 

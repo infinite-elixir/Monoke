@@ -83,10 +83,10 @@ def test_no_script_runs_before_the_dom_is_ready():
 
 
 def test_nothing_overlays_the_add_creator_form():
-    # The viewer's onboarding hint is the only pointer-events:none element,
-    # and it exists on the viewer page alone (T8.4). Nothing on the app shell
-    # may overlay the add-creator form.
-    shell_css = STYLE_CSS.split("Fullscreen viewer", 1)[0]
+    # The merged overlay's onboarding hint is the only pointer-events:none
+    # element, and it lives in the gallery overlay (T11.1). Nothing on the app
+    # shell may overlay the add-creator form.
+    shell_css = STYLE_CSS.split("Merged gallery lightbox", 1)[0]
     assert "pointer-events" not in shell_css
     # No fixed overlay sits above the form; the debug panel is hidden by
     # default and only exists in debug mode.

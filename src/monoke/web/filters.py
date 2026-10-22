@@ -17,6 +17,13 @@ from ..extract.classify import Category
 PER_PAGE = 50
 LINKS_PER_PAGE = 100
 GALLERY_PER_PAGE = 60
+# The gallery groups media by post and pages by post (T4.11). The bookmarks
+# media grid keeps GALLERY_PER_PAGE.
+GALLERY_POSTS_PER_PAGE = 20
+
+# Unfiltered /bookmarks shows this many items per creator before its
+# "View all" link; the creator-filtered page is uncapped (T9.4).
+BOOKMARKS_PER_CREATOR_PREVIEW = 6
 
 # Sidebar/dropdown order. Post pages use their own priority order (below).
 CATEGORY_ORDER: tuple[str, ...] = (
@@ -403,7 +410,7 @@ class GalleryFilters:
 
     @property
     def offset(self) -> int:
-        return (self.page - 1) * GALLERY_PER_PAGE
+        return (self.page - 1) * GALLERY_POSTS_PER_PAGE
 
     @property
     def active(self) -> bool:
@@ -429,9 +436,30 @@ class GalleryFilters:
             "date_from": self.date_from,
             "date_to": self.date_to,
             "sort": self.sort,
-            "limit": GALLERY_PER_PAGE,
+            "limit": GALLERY_POSTS_PER_PAGE,
             "offset": self.offset,
         }
+
+    def viewer_kwargs(self) -> dict[str, Any]:
+        """Filter dimensions the viewer's post scope shares with the grid.
+
+        Paging is deliberately absent: the viewer crosses page boundaries and
+        stops only at the edges of the filtered result set (T11.6).
+        """
+        return {
+            "q": self.q,
+            "tag": self.tag,
+            "kind": self.kind,
+            "orientation": self.orientation,
+            "min_bytes": self.min_bytes,
+            "date_from": self.date_from,
+            "date_to": self.date_to,
+            "sort": self.sort,
+        }
+
+    def viewer_query_string(self) -> str:
+        """The gallery filters as sent to ``/viewer/data`` (no ``page``)."""
+        return self.with_changes(page=1).query_string()
 
     def with_changes(self, **overrides: Any) -> "GalleryFilters":
         values = {field.name: getattr(self, field.name) for field in fields(self)}

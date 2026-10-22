@@ -8,7 +8,7 @@ import math
 from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import (
@@ -30,12 +30,14 @@ from ..extract.sanitize import lazy_images, sanitize_html
 from .filters import (
     BOOKMARK_TAB_ORDER,
     BOOKMARK_VIEWS,
+    BOOKMARKS_PER_CREATOR_PREVIEW,
     CATEGORY_LABELS,
     CATEGORY_ORDER,
     GALLERY_KIND_LABELS,
     GALLERY_MIN_BYTES,
     GALLERY_ORIENTATIONS,
     GALLERY_PER_PAGE,
+    GALLERY_POSTS_PER_PAGE,
     GALLERY_SORTS,
     LINK_SORTS,
     LINKS_PER_PAGE,
@@ -551,7 +553,7 @@ def _creator_context(
 
 
 def _gallery_pager(filters: GalleryFilters, creator_id: int, total: int) -> dict[str, Any]:
-    pages = max(1, math.ceil(total / GALLERY_PER_PAGE)) if total else 1
+    pages = max(1, math.ceil(total / GALLERY_POSTS_PER_PAGE)) if total else 1
     page = min(filters.page, pages)
     links: list[dict[str, Any] | None] = []
     for number in page_items(page, pages):
@@ -569,13 +571,21 @@ def _gallery_pager(filters: GalleryFilters, creator_id: int, total: int) -> dict
         "page": page,
         "pages": pages,
         "total": total,
-        "noun": "media",
+        "noun": "posts",
         "prev_url": filters.url_for(creator_id, page=page - 1) if page > 1 else None,
         "next_url": (
             filters.url_for(creator_id, page=page + 1) if page < pages else None
         ),
         "links": links,
     }
+
+
+def _gallery_next_url(
+    filters: GalleryFilters, creator_id: int, focus: str | None = None
+) -> str:
+    """Current gallery URL plus an optional tile/section focus fragment."""
+    url = filters.url_for(creator_id)
+    return f"{url}#{focus}" if focus else url
 
 
 def _decorate_gallery_image(image: dict[str, Any], creator_id: int) -> dict[str, Any]:
@@ -595,7 +605,7 @@ def _decorate_gallery_image(image: dict[str, Any], creator_id: int) -> dict[str,
         if image.get("width") and image.get("height")
         else ""
     )
-    image["copies"] = int(image.get("copies") or 1)
+    image["gallery_id"] = f"gallery-{image.get('sha256') or image.get('id')}"
     return image
 
 
@@ -617,24 +627,81 @@ def _gallery_sorts(filters: GalleryFilters) -> dict[str, str]:
     return sorts
 
 
+def _gallery_kind_tabs(
+    filters: GalleryFilters, creator_id: int, stats: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """The All media / Images / Videos / GIFs tab strip (T7.7).
+
+    Counts are the distinct media counts already loaded by ``gallery_stats()``;
+    ``All media`` is their sum. Zero-count tabs stay clickable so an empty kind
+    can still be confirmed. Each tab keeps every other active filter and resets
+    the page, because switching kind changes the result set.
+    """
+    counts = {
+        "": sum(int(stats.get(key) or 0) for key in ("images", "videos", "gifs")),
+        "image": int(stats.get("images") or 0),
+        "video": int(stats.get("videos") or 0),
+        "gif": int(stats.get("gifs") or 0),
+    }
+    tabs: list[dict[str, Any]] = []
+    for key, label in GALLERY_KIND_LABELS.items():
+        kind = key or None
+        tabs.append(
+            {
+                "kind": key,
+                "label": label,
+                "count": counts[key],
+                "current": filters.kind == kind,
+                "url": filters.url_for(creator_id, kind=kind),
+            }
+        )
+    return tabs
+
+
 def _gallery_context(request: Request, creator_id: int) -> dict[str, Any]:
     filters = GalleryFilters.from_query(request.query_params)
     conn = _connect()
     try:
         creator = _creator_or_404(conn, creator_id)
         stats = db.gallery_stats(conn, creator_id)
-        rows, total = db.list_gallery_images(conn, creator_id, **filters.db_kwargs())
+        groups, total = db.list_gallery_posts(conn, creator_id, **filters.db_kwargs())
 
-        pages = max(1, math.ceil(total / GALLERY_PER_PAGE)) if total else 1
+        pages = max(1, math.ceil(total / GALLERY_POSTS_PER_PAGE)) if total else 1
         if filters.page > pages and total:
             filters = filters.with_changes(page=pages)
-            rows, total = db.list_gallery_images(conn, creator_id, **filters.db_kwargs())
+            groups, total = db.list_gallery_posts(
+                conn, creator_id, **filters.db_kwargs()
+            )
 
-        images = [_decorate_gallery_image(row, creator_id) for row in rows]
+        all_media: list[dict[str, Any]] = []
+        for group in groups:
+            group["post_url"] = f"/c/{creator_id}/p/{group['service_id']}"
+            media = [_decorate_gallery_image(row, creator_id) for row in group["media"]]
+            for image in media:
+                image["post_url"] = group["post_url"]
+                # Tile bootstrap for the merged overlay (T11.1). viewer_index
+                # describes the playlist /viewer/data returns: the filtered
+                # list when a media filter is active, otherwise every
+                # viewer-kind row of the post (T11.6).
+                image["post_service_id"] = group["service_id"]
+            group["media"] = media
+            group["media_count"] = len(media)
+            kinds = {image["kind"] for image in media}
+            if len(kinds) == 1:
+                singular, plural = {
+                    "image": ("image", "images"),
+                    "video": ("video", "videos"),
+                    "gif": ("gif", "gifs"),
+                }[next(iter(kinds))]
+                group["count_label"] = f"{len(media)} {singular if len(media) == 1 else plural}"
+            else:
+                group["count_label"] = f"{len(media)} media"
+            all_media.extend(media)
+
         bookmarked_shas = db.bookmarked_media_shas(
-            conn, creator_id, [image.get("sha256") for image in images]
+            conn, creator_id, [image.get("sha256") for image in all_media]
         )
-        for image in images:
+        for image in all_media:
             image["is_bookmarked"] = image.get("sha256") in bookmarked_shas
         tags = db.gallery_tag_facets(conn, creator_id)
         tag_available = db.creator_has_tags(conn, creator_id)
@@ -645,7 +712,7 @@ def _gallery_context(request: Request, creator_id: int) -> dict[str, Any]:
         "active_page": "creators",
         "creator": creator,
         "filters": filters,
-        "images": images,
+        "groups": groups,
         "total": total,
         "stats": stats,
         "tags": tags,
@@ -653,8 +720,11 @@ def _gallery_context(request: Request, creator_id: int) -> dict[str, Any]:
         "orientations": GALLERY_ORIENTATIONS,
         "size_floor": GALLERY_MIN_BYTES,
         "kind_labels": GALLERY_KIND_LABELS,
+        "kind_tabs": _gallery_kind_tabs(filters, creator_id, stats),
+        "kind_word": GALLERY_KIND_LABELS.get(filters.kind or "", "media").lower(),
         "sorts": _gallery_sorts(filters),
         "tag_available": tag_available,
+        "viewer_query": filters.viewer_query_string(),
         "ref_url": f"/c/{creator_id}/gallery",
     }
 
@@ -705,6 +775,7 @@ def _decorate_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
             original_filename=file.get("original_filename"),
             variants=variants,
             duration_ms=file.get("duration_ms"),
+            url=file.get("url"),
         )
         if effective == "file" and kind in {"image", "gif", "video", "audio"}:
             effective = kind
@@ -887,87 +958,49 @@ def creator_gallery(request: Request, creator_id: int):
 
 
 # --------------------------------------------------------------------------- #
-# fullscreen viewer (T8.1-T8.3)
+# merged lightbox/viewer JSON payload (T11.1)
+#
+# The old HTML viewer page is gone; this endpoint stays as the internal,
+# read-only post playlist used for post navigation and preloading.
 # --------------------------------------------------------------------------- #
 
 
-def _viewer_index(raw: Any, count: int) -> int:
-    """Clamp a requested media index into ``0..count-1``."""
-    if count <= 0:
-        return 0
-    try:
-        index = int(raw)
-    except (TypeError, ValueError):
-        return 0
-    return max(0, min(index, count - 1))
-
-
-def _viewer_return_url(creator_id: int, request: Request) -> str:
-    if request.query_params.get("from") == "gallery":
-        return f"/c/{int(creator_id)}/gallery"
-    return f"/c/{int(creator_id)}"
-
-
-def _viewer_flag(request: Request, name: str) -> bool:
-    """Truthy unless the query parameter is explicitly ``0``/``false``."""
-    value = request.query_params.get(name)
-    if value is None:
-        return True
-    return value.lower() not in {"0", "false", "no", "off"}
-
-
-@router.get(
-    "/c/{creator_id}/viewer",
-    response_class=HTMLResponse,
-    include_in_schema=False,
-)
-def creator_viewer(request: Request, creator_id: int):
-    post_id = request.query_params.get("post") or None
-    conn = _connect()
-    try:
-        creator = _creator_or_404(conn, creator_id)
-        state = db.viewer_state(conn, creator_id, post_id)
-    finally:
-        conn.close()
-
-    # An explicit post must exist and carry media; the bare route still gets a
-    # friendly empty state for a creator with nothing eligible yet.
-    if state is None and post_id is not None:
-        raise HTTPException(status_code=404)
-
-    item = None
-    if state is not None:
-        state["index"] = _viewer_index(request.query_params.get("i"), len(state["media"]))
-        item = state["media"][state["index"]]
-
-    return render(
-        request,
-        "viewer.html",
-        active_page="creators",
-        creator=creator,
-        state=state,
-        item=item,
-        return_url=_viewer_return_url(creator_id, request),
-        show_hint=_viewer_flag(request, "hint"),
-        quiet=request.query_params.get("quiet") == "1",
-        empty=(state is None),
-    )
-
-
 @router.get("/c/{creator_id}/viewer/data", include_in_schema=False)
-def creator_viewer_data(creator_id: int, post: str | None = None):
+def creator_viewer_data(
+    request: Request, creator_id: int, post: str | None = None
+):
+    # The viewer carries the active gallery filters so the playlist, neighbour
+    # chain and preload window all stay inside the filtered grid (T11.6).
+    # ``page`` is ignored on purpose: navigation crosses page boundaries.
+    filters = GalleryFilters.from_query(request.query_params)
     conn = _connect()
     try:
         creator = db.get_creator(conn, creator_id)
         if creator is None:
             return JSONResponse({"error": "unknown creator"}, status_code=404)
-        state = db.viewer_state(conn, creator_id, post)
+        state = db.viewer_state(
+            conn,
+            creator_id,
+            post,
+            **filters.viewer_kwargs(),
+        )
+        post_exists = bool(
+            post and db.get_post_by_service_id(conn, creator_id, post) is not None
+        )
     finally:
         conn.close()
 
     if state is None:
+        if post:
+            if post_exists and filters.active:
+                return JSONResponse(
+                    {"error": "no media match these filters"}, status_code=404
+                )
+            return JSONResponse({"error": "unknown post"}, status_code=404)
         message = (
-            "unknown post" if post else "no media in this archive"
+            "no media match these filters"
+            if filters.active
+            else "no media in this archive"
         )
         return JSONResponse({"error": message}, status_code=404)
     return JSONResponse(state)
@@ -1323,59 +1356,112 @@ def _decorate_library_media(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _bookmarks_page_url(filters: BookmarkFilters) -> str:
+    query = filters.query_string()
+    return f"/bookmarks?{query}" if query else "/bookmarks"
+
+
+def _decorate_bookmark_post(item: dict[str, Any]) -> dict[str, Any]:
+    creator_id = int(item["creator_id"])
+    item["creator_url"] = f"/c/{creator_id}"
+    item["post_url"] = f"/c/{creator_id}/p/{item['service_id']}"
+    return item
+
+
+def _bookmarks_overview(
+    conn,
+    filters: BookmarkFilters,
+    *,
+    current_url: str = "",
+    preview: int,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    sections, totals = db.bookmark_overview(
+        conn, view=filters.view, preview_limit=preview
+    )
+    for section in sections:
+        creator_id = int(section["creator_id"])
+        section["creator_url"] = f"/c/{creator_id}"
+        section["view_all_url"] = filters.url_for(view=filters.view, creator=creator_id)
+        decorated: list[dict[str, Any]] = []
+        for item in section["preview"]:
+            if item["kind"] == "post":
+                decorated.append(_decorate_bookmark_post(item))
+            else:
+                decorated.append(_decorate_library_media(item))
+        section["preview"] = decorated
+    return sections, totals
+
+
 def _bookmarks_context(request: Request) -> dict[str, Any]:
     filters = BookmarkFilters.from_query(request.query_params)
+    current_url = _bookmarks_page_url(filters)
     conn = _connect()
     try:
         if filters.creator is not None and db.get_creator(conn, filters.creator) is None:
             filters = filters.with_changes(creator=None, page=filters.page)
-
-        post_limit = PER_PAGE if filters.view in {"all", "posts"} else 1
-        media_limit = GALLERY_PER_PAGE if filters.view in {"all", "media"} else 1
-        post_offset = filters.post_offset if filters.view == "posts" else 0
-        media_offset = filters.media_offset if filters.view == "media" else 0
-
-        posts, post_total = db.list_post_bookmarks(
-            conn, creator_id=filters.creator, limit=post_limit, offset=post_offset
-        )
-        media, media_total = db.list_media_bookmarks(
-            conn, creator_id=filters.creator, limit=media_limit, offset=media_offset
-        )
-
-        # A hand-typed page past the end lands on the last real page rather
-        # than an empty grid.
-        if filters.view == "posts":
-            pages = max(1, math.ceil(post_total / PER_PAGE)) if post_total else 1
-            if filters.page > pages and post_total:
-                filters = filters.with_changes(page=pages)
-                posts, post_total = db.list_post_bookmarks(
-                    conn,
-                    creator_id=filters.creator,
-                    limit=PER_PAGE,
-                    offset=filters.post_offset,
-                )
-        elif filters.view == "media":
-            pages = (
-                max(1, math.ceil(media_total / GALLERY_PER_PAGE)) if media_total else 1
-            )
-            if filters.page > pages and media_total:
-                filters = filters.with_changes(page=pages)
-                media, media_total = db.list_media_bookmarks(
-                    conn,
-                    creator_id=filters.creator,
-                    limit=GALLERY_PER_PAGE,
-                    offset=filters.media_offset,
-                )
+            current_url = _bookmarks_page_url(filters)
 
         creators = db.bookmark_creator_facets(conn)
+        is_overview = filters.creator is None
+        sections: list[dict[str, Any]] = []
+        posts: list[dict[str, Any]] = []
+        media: list[dict[str, Any]] = []
+
+        if is_overview:
+            sections, totals = _bookmarks_overview(
+                conn,
+                filters,
+                current_url=current_url,
+                preview=BOOKMARKS_PER_CREATOR_PREVIEW,
+            )
+            post_total = totals["posts"]
+            media_total = totals["media"]
+        else:
+            post_limit = PER_PAGE if filters.view in {"all", "posts"} else 1
+            media_limit = GALLERY_PER_PAGE if filters.view in {"all", "media"} else 1
+            post_offset = filters.post_offset if filters.view == "posts" else 0
+            media_offset = filters.media_offset if filters.view == "media" else 0
+
+            posts, post_total = db.list_post_bookmarks(
+                conn, creator_id=filters.creator, limit=post_limit, offset=post_offset
+            )
+            media, media_total = db.list_media_bookmarks(
+                conn, creator_id=filters.creator, limit=media_limit, offset=media_offset
+            )
+
+            # A hand-typed page past the end lands on the last real page rather
+            # than an empty grid.
+            if filters.view == "posts":
+                pages = max(1, math.ceil(post_total / PER_PAGE)) if post_total else 1
+                if filters.page > pages and post_total:
+                    filters = filters.with_changes(page=pages)
+                    current_url = _bookmarks_page_url(filters)
+                    posts, post_total = db.list_post_bookmarks(
+                        conn,
+                        creator_id=filters.creator,
+                        limit=PER_PAGE,
+                        offset=filters.post_offset,
+                    )
+            elif filters.view == "media":
+                pages = (
+                    max(1, math.ceil(media_total / GALLERY_PER_PAGE))
+                    if media_total
+                    else 1
+                )
+                if filters.page > pages and media_total:
+                    filters = filters.with_changes(page=pages)
+                    current_url = _bookmarks_page_url(filters)
+                    media, media_total = db.list_media_bookmarks(
+                        conn,
+                        creator_id=filters.creator,
+                        limit=GALLERY_PER_PAGE,
+                        offset=filters.media_offset,
+                    )
     finally:
         conn.close()
 
     for post in posts:
-        post["creator_url"] = f"/c/{int(post['creator_id'])}"
-        post["post_url"] = (
-            f"/c/{int(post['creator_id'])}/p/{post['service_id']}"
-        )
+        _decorate_bookmark_post(post)
     media = [_decorate_library_media(row) for row in media]
 
     counts = {"all": post_total + media_total, "posts": post_total, "media": media_total}
@@ -1392,12 +1478,12 @@ def _bookmarks_context(request: Request) -> dict[str, Any]:
 
     post_pager = (
         _bookmark_pager(filters, post_total, PER_PAGE, "posts")
-        if filters.view == "posts"
+        if not is_overview and filters.view == "posts"
         else None
     )
     media_pager = (
         _bookmark_pager(filters, media_total, GALLERY_PER_PAGE, "media")
-        if filters.view == "media"
+        if not is_overview and filters.view == "media"
         else None
     )
 
@@ -1405,24 +1491,32 @@ def _bookmarks_context(request: Request) -> dict[str, Any]:
         "active_page": "bookmarks",
         "filters": filters,
         "tabs": tabs,
+        "is_overview": is_overview,
+        "sections": sections,
         "posts": posts,
         "media": media,
         "post_total": post_total,
         "media_total": media_total,
         "total": counts["all"],
+        "view_total": counts[filters.view],
         "show_posts": filters.view in {"all", "posts"},
         "show_media": filters.view in {"all", "media"},
         "posts_more_url": (
-            filters.url_for(view="posts") if filters.view == "all" else None
+            filters.url_for(view="posts")
+            if not is_overview and filters.view == "all"
+            else None
         ),
         "media_more_url": (
-            filters.url_for(view="media") if filters.view == "all" else None
+            filters.url_for(view="media")
+            if not is_overview and filters.view == "all"
+            else None
         ),
         "post_pager": post_pager,
         "media_pager": media_pager,
         "creators": creators,
         "creator_filter": filters.creator,
         "creator_filter_active": filters.creator is not None,
+        "current_url": current_url,
         "ref_url": "/bookmarks",
         "view": filters.view,
         "view_label": BOOKMARK_VIEWS[filters.view],
@@ -1432,4 +1526,19 @@ def _bookmarks_context(request: Request) -> dict[str, Any]:
 @router.get("/bookmarks", response_class=HTMLResponse, include_in_schema=False)
 def bookmarks_page(request: Request):
     return render(request, "bookmarks.html", **_bookmarks_context(request))
+
+
+def _bookmark_return_path(value: Any) -> str | None:
+    """Accept only the local ``/bookmarks`` library, query string intact."""
+    text = _safe_next(value, "")
+    if not text:
+        return None
+    lowered = text.lower()
+    for encoded in ("%2f", "%5c", "%0d", "%0a"):
+        if encoded in lowered:
+            return None
+    parts = urlsplit(text)
+    if parts.path != "/bookmarks":
+        return None
+    return text
 

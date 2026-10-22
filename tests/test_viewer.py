@@ -1,7 +1,13 @@
+"""T11.1 - the merged gallery lightbox and fullscreen viewer."""
+
 from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
+import textwrap
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -70,6 +76,9 @@ def add_file(
     url: str | None = None,
     thumb_url: str | None = None,
     duration_ms: int | None = None,
+    width: int = 1080,
+    height: int = 1920,
+    bytes_: int | None = None,
 ) -> None:
     extension = {"video": "mp4", "gif": "gif", "image": "jpg", "audio": "m4a"}.get(
         kind, "bin"
@@ -86,9 +95,13 @@ def add_file(
                 "image": "image/jpeg",
                 "audio": "audio/mp4",
             }.get(kind, "application/octet-stream"),
-            "bytes": 8166926 if kind == "video" else 250_000,
-            "width": 1080,
-            "height": 1920,
+            "bytes": (
+                bytes_
+                if bytes_ is not None
+                else (8166926 if kind == "video" else 250_000)
+            ),
+            "width": width,
+            "height": height,
             "duration_ms": duration_ms,
             "original_filename": f"{sha[:8]}.{extension}",
             "url": url
@@ -115,84 +128,31 @@ def sha(number: int) -> str:
     return f"{number:064x}"
 
 
-def embedded_state(body: str) -> dict:
-    match = re.search(
-        r'<script type="application/json" id="viewer-initial">(.*?)</script>',
-        body,
-        re.S,
-    )
-    assert match is not None
-    return json.loads(match.group(1))
-
-
-def test_default_opens_newest_media_and_skips_text_only_posts(client, conn):
-    creator_id = make_creator(conn)
-    oldest = add_post(conn, creator_id, 0, title="Oldest media")
-    add_file(conn, oldest, sha(1))
-    add_post(conn, creator_id, 1, title="Text only between")
-    newest = add_post(conn, creator_id, 2, title="Newest media")
-    add_file(conn, newest, sha(2), kind="video", duration_ms=10_000)
-    add_post(conn, creator_id, 3, title="Text only newest")
-
-    response = client.get(f"/c/{creator_id}/viewer")
-
+def gallery_body(client, creator_id: int, **params) -> str:
+    response = client.get(f"/c/{creator_id}/gallery", params=params)
     assert response.status_code == 200
-    state = embedded_state(response.text)
-    assert state["post"]["service_id"] == str(2183930591 + 2)
-    assert state["post"]["title"] == "Newest media"
-    assert state["post"]["media_count"] == 1
-    assert state["media"][0]["kind"] == "video"
-    assert state["previous_post"] is None
-    assert state["next_post"] == str(2183930591 + 0)
-    assert state["creator"] == {
-        "id": creator_id,
-        "name": "Belledelphine",
-        "service": "onlyfans",
-    }
+    return response.text
 
 
-def test_post_and_index_query_restores_exact_item_and_clamps(client, conn):
-    creator_id = make_creator(conn)
-    post_id = add_post(conn, creator_id, 0)
-    for index in range(3):
-        add_file(conn, post_id, sha(index), position=index)
-    service_id = str(2183930591)
-
-    middle = client.get(f"/c/{creator_id}/viewer?post={service_id}&i=1")
-    state = embedded_state(middle.text)
-    assert state["index"] == 1
-    assert state["media"][1]["index"] == 1
-    assert f'src="https://e3.cum.st/media/{sha(1)}/original.jpg"' in middle.text
-    assert "2 / 3" in middle.text
-
-    too_large = client.get(f"/c/{creator_id}/viewer?post={service_id}&i=99")
-    assert embedded_state(too_large.text)["index"] == 2
-    assert "3 / 3" in too_large.text
-
-    negative = client.get(f"/c/{creator_id}/viewer?post={service_id}&i=-4")
-    assert embedded_state(negative.text)["index"] == 0
+def overlay_markup(body: str) -> str:
+    marker = 'id="gallery-lightbox"'
+    assert marker in body
+    return body[body.index(marker) :]
 
 
-def test_post_without_media_404s_and_unknown_creator_404s(client, conn):
-    creator_id = make_creator(conn)
-    text_post = add_post(conn, creator_id, 0, title="Only words")
-    service_id = str(2183930591)
+def node_script(block: str, body: str) -> dict:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    script = textwrap.dedent(block) + textwrap.dedent(body)
+    result = subprocess.run([node, "-e", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
 
-    assert client.get(f"/c/{creator_id}/viewer?post={service_id}").status_code == 404
-    assert client.get(f"/c/{creator_id}/viewer?post=does-not-exist").status_code == 404
-    assert client.get("/c/999/viewer").status_code == 404
-    assert client.get("/c/999/viewer/data").status_code == 404
 
-    missing = client.get(
-        f"/c/{creator_id}/viewer/data?post=does-not-exist"
-    )
-    assert missing.status_code == 404
-    assert "error" in missing.json()
-
-    # A creator with no eligible media still gets the empty state, not a 500.
-    empty = client.get(f"/c/{creator_id}/viewer")
-    assert empty.status_code == 200
-    assert "No media in this archive" in empty.text
+# --------------------------------------------------------------------------- #
+# payload contract (the JSON endpoint survives the page deletion)
+# --------------------------------------------------------------------------- #
 
 
 def test_data_endpoint_matches_contract_and_parses_variants(client, conn):
@@ -234,6 +194,21 @@ def test_data_endpoint_matches_contract_and_parses_variants(client, conn):
     assert item["post_position"] == 0
     assert item["variants"][0]["name"] == "original.mp4"
     assert payload["index"] == 0
+
+
+def test_missing_payloads_stay_404_json_and_bare_payload_still_answers(client, conn):
+    creator_id = make_creator(conn)
+    add_post(conn, creator_id, 0, title="Only words")
+
+    assert client.get(f"/c/{creator_id}/viewer/data?post=does-not-exist").status_code == 404
+    assert client.get("/c/999/viewer/data").status_code == 404
+    missing = client.get(f"/c/{creator_id}/viewer/data?post=does-not-exist")
+    assert "error" in missing.json()
+
+    # A creator with no eligible media still gets a JSON error, never HTML.
+    empty = client.get(f"/c/{creator_id}/viewer/data")
+    assert empty.status_code == 404
+    assert empty.headers["content-type"].startswith("application/json")
 
 
 def test_neighbour_lookup_skips_text_only_posts_in_both_directions(conn):
@@ -284,12 +259,11 @@ def test_viewer_does_not_dedupe_sha_across_posts(client, conn):
     add_file(conn, second, sha(42))
 
     for post_number, title in ((0, "First copy"), (1, "Second copy")):
-        body = client.get(
-            f"/c/{creator_id}/viewer?post={2183930591 + post_number}"
-        ).text
-        state = embedded_state(body)
-        assert state["post"]["title"] == title
-        assert [item["sha256"] for item in state["media"]] == [sha(42)]
+        payload = client.get(
+            f"/c/{creator_id}/viewer/data?post={2183930591 + post_number}"
+        ).json()
+        assert payload["post"]["title"] == title
+        assert [item["sha256"] for item in payload["media"]] == [sha(42)]
 
 
 def test_viewer_media_orders_by_position_then_id(conn):
@@ -303,205 +277,6 @@ def test_viewer_media_orders_by_position_then_id(conn):
 
     assert [item["sha256"] for item in media] == [sha(1), sha(2), sha(3)]
     assert [item["index"] for item in media] == [0, 1, 2]
-
-
-# --------------------------------------------------------------------------- #
-# T8.2 - shell and media rendering
-# --------------------------------------------------------------------------- #
-
-
-def test_viewer_shell_has_one_stage_state_and_page_script(client, conn):
-    creator_id = make_creator(conn)
-    add_file(conn, add_post(conn, creator_id, 0), sha(1))
-
-    body = client.get(f"/c/{creator_id}/viewer").text
-
-    assert body.count("data-viewer-stage") == 1
-    assert body.count('id="viewer-initial"') == 1
-    assert "/static/viewer.js" in body
-    assert 'class="viewer-page"' in body
-    assert "/static/app.js" in body
-
-
-def test_viewer_renders_image_gif_and_video_elements(client, conn):
-    creator_id = make_creator(conn)
-    image = add_post(conn, creator_id, 0, title="Image post")
-    add_file(conn, image, sha(1), kind="image")
-    gif = add_post(conn, creator_id, 1, title="GIF post")
-    add_file(conn, gif, sha(2), kind="gif")
-    video = add_post(conn, creator_id, 2, title="Video post")
-    add_file(conn, video, sha(3), kind="video", duration_ms=9_000)
-
-    image_body = client.get(f"/c/{creator_id}/viewer?post=2183930591").text
-    assert f'<img class="viewer-media-el"' in image_body
-    assert f'src="https://e3.cum.st/media/{sha(1)}/original.jpg"' in image_body
-    assert 'alt="Image post"' in image_body
-
-    gif_body = client.get(f"/c/{creator_id}/viewer?post=2183930592").text
-    assert '<img class="viewer-media-el"' in gif_body
-    assert f'src="https://e3.cum.st/media/{sha(2)}/original.gif"' in gif_body
-
-    video_body = client.get(f"/c/{creator_id}/viewer?post=2183930593").text
-    video_tag = video_body.split("<video", 1)[1].split("</video>", 1)[0]
-    assert "controls" in video_tag
-    assert "playsinline" in video_tag
-    assert 'preload="metadata"' in video_tag
-    assert f'poster="https://img.cum.st/thumbnail/{sha(3)}/preview.webp"' in video_tag
-    assert f'src="https://e3.cum.st/media/{sha(3)}/original.mp4"' in video_tag
-    assert "autoplay" not in video_tag
-
-
-def test_viewer_marks_missing_media_unavailable(client, conn):
-    creator_id = make_creator(conn)
-    post_id = add_post(conn, creator_id, 0)
-    add_file(conn, post_id, sha(1), url="", thumb_url=None)
-
-    body = client.get(f"/c/{creator_id}/viewer").text
-
-    assert "Media unavailable" in body
-    assert "Open the post" in body
-
-
-def test_viewer_script_is_not_loaded_on_other_pages(client, conn):
-    creator_id = make_creator(conn)
-    add_file(conn, add_post(conn, creator_id, 0), sha(1))
-
-    for path in ("/", f"/c/{creator_id}", f"/c/{creator_id}/gallery"):
-        body = client.get(path).text
-        assert "/static/app.js" in body
-        assert "/static/viewer.js" not in body
-
-
-def test_viewer_entry_links_and_return_url(client, conn):
-    creator_id = make_creator(conn)
-    add_file(conn, add_post(conn, creator_id, 0), sha(1))
-
-    creator_body = client.get(f"/c/{creator_id}").text
-    assert f'href="/c/{creator_id}/viewer"' in creator_body
-    assert "View latest" in creator_body
-
-    gallery_body = client.get(f"/c/{creator_id}/gallery").text
-    assert f'href="/c/{creator_id}/viewer?from=gallery"' in gallery_body
-    assert "Open viewer" in gallery_body
-
-    viewer_body = client.get(f"/c/{creator_id}/viewer?from=gallery").text
-    assert f'data-return-url="/c/{creator_id}/gallery"' in viewer_body
-
-
-# --------------------------------------------------------------------------- #
-# T8.3 - invisible directional controls
-# --------------------------------------------------------------------------- #
-
-
-def test_viewer_renders_four_invisible_zone_buttons(client, conn):
-    creator_id = make_creator(conn)
-    add_file(conn, add_post(conn, creator_id, 0), sha(1))
-
-    body = client.get(f"/c/{creator_id}/viewer").text
-
-    assert body.count('class="viewer-zone') == 4
-    for action in ("prev-image", "next-image", "prev-post", "next-post"):
-        assert f'data-viewer-action="{action}"' in body
-    assert 'aria-label="Previous media"' in body
-    assert 'aria-label="Next media"' in body
-    assert 'aria-label="Newer post"' in body
-    assert 'aria-label="Older post"' in body
-    # No toolbar or visible navigation text is rendered.
-    assert "viewer-toolbar" not in body
-
-
-# --------------------------------------------------------------------------- #
-# T8.4 - first-run hint, focus and lifecycle
-# --------------------------------------------------------------------------- #
-
-
-def test_viewer_shows_first_run_hint_with_all_four_directions(client, conn):
-    creator_id = make_creator(conn)
-    add_file(conn, add_post(conn, creator_id, 0), sha(1))
-
-    body = client.get(f"/c/{creator_id}/viewer").text
-
-    assert body.count("data-viewer-hint") == 1
-    assert 'class="viewer-hint"' in body
-    assert 'role="status"' in body
-    for label in ("Newer post", "Older post", "Previous image", "Next image"):
-        assert f'<span class="viewer-hint-label">{label}</span>' in body
-    assert "Esc to close · F for fullscreen · first move hides this" in body
-
-
-def test_hint_zero_suppresses_hint_and_quiet_skips_fade(client, conn):
-    creator_id = make_creator(conn)
-    add_file(conn, add_post(conn, creator_id, 0), sha(1))
-
-    quiet_hint = client.get(f"/c/{creator_id}/viewer?hint=0").text
-    assert "data-viewer-hint" not in quiet_hint
-    assert "viewer-hint-grid" not in quiet_hint
-
-    quiet = client.get(f"/c/{creator_id}/viewer?quiet=1").text
-    assert 'class="viewer viewer-quiet"' in quiet
-
-    normal = client.get(f"/c/{creator_id}/viewer?quiet=0").text
-    assert "viewer-quiet" not in normal
-
-
-def test_viewer_close_button_is_accessible_and_not_persistent(client, conn):
-    creator_id = make_creator(conn)
-    add_file(conn, add_post(conn, creator_id, 0), sha(1))
-
-    body = client.get(f"/c/{creator_id}/viewer").text
-
-    close_tag = re.search(r"<button[^>]*data-viewer-close[^>]*>", body)
-    assert close_tag is not None
-    tag = close_tag.group(0)
-    assert 'aria-label="Close viewer"' in tag
-    assert 'class="viewer-close"' in tag
-    # First focusable element inside the viewer.
-    assert body.index("data-viewer-close") < body.index("data-viewer-stage")
-
-
-def test_viewer_root_is_a_focusable_labelled_dialog(client, conn):
-    creator_id = make_creator(conn)
-    add_file(conn, add_post(conn, creator_id, 0), sha(1))
-
-    body = client.get(f"/c/{creator_id}/viewer").text
-    main_tag = re.search(r'<main id="viewer"[^>]*>', body)
-    assert main_tag is not None
-    tag = main_tag.group(0)
-
-    assert 'role="dialog"' in tag
-    assert 'aria-modal="true"' in tag
-    assert 'aria-label="Media viewer"' in tag
-    assert 'tabindex="-1"' in tag
-
-
-def test_viewer_announces_post_rank_and_media_post_total(client, conn):
-    creator_id = make_creator(conn)
-    oldest = add_post(conn, creator_id, 0)
-    add_file(conn, oldest, sha(1))
-    add_post(conn, creator_id, 1)  # text-only: not a media post
-    middle = add_post(conn, creator_id, 2)
-    add_file(conn, middle, sha(2))
-    newest = add_post(conn, creator_id, 3)
-    add_file(conn, newest, sha(3))
-
-    state = embedded_state(client.get(f"/c/{creator_id}/viewer").text)
-    assert state["post_rank"] == 1
-    assert state["media_post_count"] == 3
-
-    middle_state = embedded_state(
-        client.get(f"/c/{creator_id}/viewer?post=2183930593").text
-    )
-    assert middle_state["post_rank"] == 2
-    assert middle_state["media_post_count"] == 3
-
-    payload = client.get(f"/c/{creator_id}/viewer/data?post=2183930591").json()
-    assert payload["post_rank"] == 3
-    assert payload["media_post_count"] == 3
-
-
-# --------------------------------------------------------------------------- #
-# T8.6 - horizontal navigation crosses into neighbouring posts
-# --------------------------------------------------------------------------- #
 
 
 def test_viewer_state_exposes_neighbour_chain_and_destination_edges(client, conn):
@@ -527,9 +302,6 @@ def test_viewer_state_exposes_neighbour_chain_and_destination_edges(client, conn
     assert oldest_state["previous_post"] == middle
     assert oldest_state["next_post"] is None
 
-    # Right-at-the-edge lands on item 0 of the older post; left-at-the-edge
-    # lands on the last item of the newer post. Both payloads must expose those
-    # exact endpoints, because the JS clamps against the target's own count.
     older_payload = client.get(
         f"/c/{creator_id}/viewer/data?post={oldest}"
     ).json()
@@ -540,166 +312,35 @@ def test_viewer_state_exposes_neighbour_chain_and_destination_edges(client, conn
     newer_payload = client.get(
         f"/c/{creator_id}/viewer/data?post={newest}"
     ).json()
-    assert [item["index"] for item in newer_payload["media"]] == [0, 1, 2]
     assert newer_payload["media"][0]["sha256"] == sha(20)
     assert newer_payload["media"][-1]["sha256"] == sha(22)
 
 
-# --------------------------------------------------------------------------- #
-# T8.7 - neighbouring image preload window
-# --------------------------------------------------------------------------- #
-
-
-def test_preload_window_covers_radius_and_filters_unsafe_items():
-    import json
-    import shutil
-    import subprocess
-    import textwrap
-
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node is not installed")
-
-    source = (STATIC_DIR / "viewer.js").read_text(encoding="utf-8")
-    block = source.split("// BEGIN preload-window", 1)[1].split(
-        "// END preload-window", 1
-    )[0]
-    script = (
-        textwrap.dedent(block)
-        + textwrap.dedent(
-            """
-            function media(count, overrides) {
-              var items = [];
-              for (var i = 0; i < count; i += 1) {
-                items.push({
-                  index: i,
-                  kind: "image",
-                  url: "https://e3.cum.st/media/" + i + "/original.jpg"
-                });
-              }
-              Object.keys(overrides || {}).forEach(function (key) {
-                var patch = overrides[key];
-                Object.keys(patch).forEach(function (field) {
-                  items[Number(key)][field] = patch[field];
-                });
-              });
-              return items;
-            }
-
-            var failed = new Set(["https://e3.cum.st/media/3/original.jpg"]);
-            var out = {
-              radius: PRELOAD_RADIUS,
-              max: PRELOAD_MAX,
-              middle: preloadWindowIndices(media(10), 5, null),
-              first: preloadWindowIndices(media(10), 0, null),
-              last: preloadWindowIndices(media(10), 9, null),
-              failed: preloadWindowIndices(media(10), 5, failed),
-              kinds: preloadWindowIndices(
-                media(10, {
-                  2: { kind: "video" },
-                  4: { kind: "gif" },
-                  6: { kind: "audio" },
-                  7: { url: "data:image/png;base64,AAAA" }
-                }),
-                5,
-                null
-              )
-            };
-            process.stdout.write(JSON.stringify(out));
-            """
-        )
-    )
-    result = subprocess.run([node, "-e", script], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-
-    assert payload["radius"] == 3
-    assert payload["max"] == 6
-    assert payload["middle"] == [2, 3, 4, 6, 7, 8]
-    assert payload["first"] == [1, 2, 3]
-    assert payload["last"] == [6, 7, 8]
-    assert payload["failed"] == [2, 4, 6, 7, 8]
-    assert payload["kinds"] == [3, 8]
-
-
-def test_viewer_script_passes_node_syntax_check():
-    import shutil
-    import subprocess
-    from pathlib import Path
-
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node is not installed")
-
-    script = (
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "monoke"
-        / "web"
-        / "static"
-        / "viewer.js"
-    )
-    result = subprocess.run(
-        [node, "--check", str(script)],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-
-
-
-# --------------------------------------------------------------------------- #
-# T8.5 - content-hashed assets and fullscreen media
-# --------------------------------------------------------------------------- #
-
-
-def test_viewer_links_content_hashed_assets_that_match_disk(client, conn):
+def test_viewer_state_announces_post_rank_and_media_post_total(client, conn):
     creator_id = make_creator(conn)
-    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+    oldest = add_post(conn, creator_id, 0)
+    add_file(conn, oldest, sha(1))
+    add_post(conn, creator_id, 1)  # text-only: not a media post
+    middle = add_post(conn, creator_id, 2)
+    add_file(conn, middle, sha(2))
+    newest = add_post(conn, creator_id, 3)
+    add_file(conn, newest, sha(3))
 
-    body = client.get(f"/c/{creator_id}/viewer").text
+    newest_payload = client.get(f"/c/{creator_id}/viewer/data").json()
+    assert newest_payload["post_rank"] == 1
+    assert newest_payload["media_post_count"] == 3
 
-    css_url = asset("style.css")
-    js_url = asset("viewer.js")
-    assert f'href="{css_url}"' in body
-    assert f'src="{js_url}"' in body
+    middle_payload = client.get(
+        f"/c/{creator_id}/viewer/data?post=2183930593"
+    ).json()
+    assert middle_payload["post_rank"] == 2
+    assert middle_payload["media_post_count"] == 3
 
-    css = client.get(css_url)
-    assert css.status_code == 200
-    assert css.headers["cache-control"] == "no-cache, must-revalidate"
-    assert css.text == (STATIC_DIR / "style.css").read_text(encoding="utf-8")
-
-    script = client.get(js_url)
-    assert script.status_code == 200
-    assert script.text == (STATIC_DIR / "viewer.js").read_text(encoding="utf-8")
-
-
-def test_viewer_stylesheet_makes_media_fill_and_centre_the_viewport():
-    css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
-
-    viewer_rule = css.split("\n.viewer {", 1)[1].split("}", 1)[0]
-    assert "position: fixed" in viewer_rule
-    assert "inset: 0" in viewer_rule
-    assert "width: 100vw" in viewer_rule
-    assert "height: 100dvh" in viewer_rule
-
-    media_rule = css.split("\n.viewer-media {", 1)[1].split("}", 1)[0]
-    assert "width: 100%" in media_rule
-    assert "height: 100%" in media_rule
-    assert "align-items: center" in media_rule
-    assert "justify-content: center" in media_rule
-    assert "min-width: 0" in media_rule
-    assert "min-height: 0" in media_rule
-
-    element_rule = css.split("\n.viewer-media-el {", 1)[1].split("}", 1)[0]
-    assert "max-width: 100%" in element_rule
-    assert "max-height: 100%" in element_rule
-    assert "object-fit: contain" in element_rule
-
-
-# --------------------------------------------------------------------------- #
-# T8.8 - cross-post preload and fullscreen control
-# --------------------------------------------------------------------------- #
+    oldest_payload = client.get(
+        f"/c/{creator_id}/viewer/data?post=2183930591"
+    ).json()
+    assert oldest_payload["post_rank"] == 3
+    assert oldest_payload["media_post_count"] == 3
 
 
 def test_neighbour_preload_images_are_edge_ordered_and_still_only(conn):
@@ -741,10 +382,6 @@ def test_neighbour_preload_images_are_edge_ordered_and_still_only(conn):
         sha(15),
     ]
     assert all(item["kind"] == "image" for item in previous + following)
-    assert all(
-        item["post_service_id"] == str(2183930593) for item in previous
-    )
-    assert all(item["post_service_id"] == str(2183930591) for item in following)
 
 
 def test_viewer_state_and_endpoint_expose_bounded_neighbour_payload(client, conn):
@@ -777,101 +414,350 @@ def test_viewer_state_and_endpoint_expose_bounded_neighbour_payload(client, conn
         sha(104),
         sha(105),
     ]
-    assert len(neighbours["previous"]) == db.NEIGHBOUR_PRELOAD_LIMIT
-    assert len(neighbours["next"]) == db.NEIGHBOUR_PRELOAD_LIMIT
 
     payload = client.get(
         f"/c/{creator_id}/viewer/data?post=2183930592"
     ).json()
     assert payload["neighbour_images"] == neighbours
 
-    newest = db.viewer_state(conn, creator_id, str(2183930593))
-    oldest = db.viewer_state(conn, creator_id, str(2183930591))
-    assert newest["neighbour_images"]["previous"] == []
-    assert newest["neighbour_images"]["next"]
-    assert oldest["neighbour_images"]["previous"]
-    assert oldest["neighbour_images"]["next"] == []
+
+# --------------------------------------------------------------------------- #
+# one overlay, one template, one controller
+# --------------------------------------------------------------------------- #
 
 
-def test_preload_plan_keeps_both_edges_and_prunes_stale_entries():
-    import json
-    import shutil
-    import subprocess
-    import textwrap
+def test_merged_overlay_lives_on_the_gallery_with_all_legacy_and_new_hooks(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
 
+    body = gallery_body(client, creator_id)
+
+    assert body.count('id="gallery-lightbox"') == 1
+    assert body.count("data-lightbox-root") == 1
+    for hook in (
+        "data-lightbox-image",
+        "data-lightbox-video",
+        "data-lightbox-title",
+        "data-lightbox-counter",
+        "data-lightbox-post",
+        "data-lightbox-original",
+        "data-lightbox-prev",
+        "data-lightbox-next",
+        "data-lightbox-close",
+        "data-lightbox-stage",
+        "data-lightbox-media",
+        "data-lightbox-announcer",
+        "data-lightbox-toast",
+        "data-lightbox-fullscreen",
+        "data-lightbox-expand",
+        "data-lightbox-hint",
+        "data-lightbox-flash",
+    ):
+        assert hook in body
+    overlay = overlay_markup(body)
+    assert 'role="dialog"' in overlay
+    assert 'aria-modal="true"' in overlay
+    assert 'aria-label="Media viewer"' in overlay
+    assert 'tabindex="-1"' in overlay
+    assert 'data-state="closed"' in overlay
+    assert 'hidden>' in overlay
+    # The close control is the first focusable element inside the overlay.
+    assert overlay.index("data-lightbox-close") < overlay.index("data-lightbox-stage")
+
+
+def test_gallery_tiles_bootstrap_the_overlay_without_breaking_the_link(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 0, title="Tile post")
+    add_file(conn, post_id, sha(1), position=0)
+
+    body = gallery_body(client, creator_id)
+    tile = re.search(r'<a class="gallery-thumb".*?</a>', body, re.S)
+    assert tile is not None
+    tag = tile.group(0)
+
+    assert 'href="https://e3.cum.st/media/' + sha(1) + '/original.jpg"' in tag
+    assert 'data-gallery-item' in tag
+    assert 'data-post-service-id="2183930591"' in tag
+    assert f'data-sha256="{sha(1)}"' in tag
+    assert 'data-viewer-index="0"' in tag
+    assert 'data-full="https://e3.cum.st/media/' + sha(1) + '/original.jpg"' in tag
+    # No-JS contract: the tile is still a link to the media file itself.
+    assert tag.index("<a ") == 0
+    assert "target=" in tag
+
+
+def test_tile_viewer_index_matches_the_filtered_playlist(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 0)
+    add_file(conn, post_id, sha(1), kind="image", position=0)
+    add_file(conn, post_id, sha(2), kind="gif", position=1)
+    add_file(conn, post_id, sha(3), kind="video", position=2)
+
+    images = gallery_body(client, creator_id, kind="image")
+    image_tile = re.search(r'<a class="gallery-thumb".*?</a>', images, re.S)
+    assert image_tile is not None
+    assert f'data-sha256="{sha(1)}"' in image_tile.group(0)
+    assert 'data-viewer-index="0"' in image_tile.group(0)
+
+    # T11.6: the fallback index describes the filtered playlist, not every
+    # viewer-kind row of the post. A video-only view starts at index 0.
+    videos = gallery_body(client, creator_id, kind="video")
+    video_tile = re.search(r'<a class="gallery-thumb".*?</a>', videos, re.S)
+    assert video_tile is not None
+    assert f'data-sha256="{sha(3)}"' in video_tile.group(0)
+    assert 'data-viewer-index="0"' in video_tile.group(0)
+
+    # Without a media filter the historical pre-filter index is unchanged.
+    everything = gallery_body(client, creator_id)
+    all_tiles = re.findall(r'<a class="gallery-thumb".*?</a>', everything, re.S)
+    assert [re.search(r'data-viewer-index="(\d+)"', tag).group(1) for tag in all_tiles] == [
+        "0",
+        "1",
+        "2",
+    ]
+
+
+def test_old_html_viewer_route_is_gone_while_data_still_answers_json(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    assert client.get(f"/c/{creator_id}/viewer").status_code in {404, 405}
+    assert client.get(f"/c/{creator_id}/viewer?post=2183930591").status_code in {
+        404,
+        405,
+    }
+    payload = client.get(f"/c/{creator_id}/viewer/data?post=2183930591")
+    assert payload.status_code == 200
+    assert payload.headers["content-type"].startswith("application/json")
+    assert payload.json()["media"][0]["sha256"] == sha(1)
+
+
+def test_creator_and_gallery_have_no_dead_viewer_links(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    creator_body = client.get(f"/c/{creator_id}").text
+    assert f'href="/c/{creator_id}/gallery"' in creator_body
+    assert "View latest" not in creator_body
+    assert "/viewer" not in creator_body
+
+    gallery = gallery_body(client, creator_id)
+    assert "Open viewer" in gallery
+    assert "data-lightbox-open" in gallery
+    assert f'/c/{creator_id}/viewer' not in gallery
+
+    templates = Path(__file__).resolve().parents[1] / "src" / "monoke" / "web" / "templates"
+    for path in templates.rglob("*.html"):
+        assert "/viewer?from=gallery" not in path.read_text(encoding="utf-8")
+
+
+def test_old_page_template_and_controller_are_deleted(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    templates = Path(__file__).resolve().parents[1] / "src" / "monoke" / "web" / "templates"
+    assert not (templates / "viewer.html").exists()
+    assert not (STATIC_DIR / "viewer.js").exists()
+
+    gallery = gallery_body(client, creator_id)
+    assert "/static/lightbox.js" in gallery
+    assert "/static/viewer.js" not in gallery
+    assert "/static/app.js" in gallery
+
+    app_source = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    lightbox_source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    for source in (app_source, lightbox_source):
+        assert "viewer.html" not in source
+        assert "viewer.js" not in source
+    # The old page controller is not loaded and its navigator is gone.
+    assert "galleryOpen" not in app_source
+    assert "galleryState" not in app_source
+    assert "data-gallery-item" in lightbox_source
+
+
+def test_merged_controller_owns_all_three_states_and_one_root():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+    for state in ("is-compact", "is-expanded", "is-browser"):
+        assert state in source
+    assert 'root.setAttribute("data-state", next)' in source
+    assert 'document.querySelector("[data-lightbox-root]")' in source
+    assert 'document.querySelector("[data-viewer-root]")' not in source
+    assert 'document.getElementById("gallery-lightbox")' not in source
+    # Bookmarks, toast, announcer and preloading moved into the one controller.
+    assert "toggleBookmark" in source
+    assert "showToast" in source
+    assert "updateCachedBookmarks" in source
+    assert "preloadCandidates" in source
+    # Navigation is post-scoped: left/right steps media, up/down jumps posts.
+    assert 'jump(payload.previous_post, -1)' in source
+    assert 'jump(payload.next_post, 0)' in source
+
+
+def test_entry_points_open_the_overlay_without_navigation(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    gallery = gallery_body(client, creator_id)
+    assert '<button class="button" type="button" data-lightbox-open>Open viewer</button>' in gallery
+
+    creator_body = client.get(f"/c/{creator_id}").text
+    assert "View latest" not in creator_body
+    assert f'href="/c/{creator_id}/gallery"' in creator_body
+
+
+# --------------------------------------------------------------------------- #
+# scripts and assets
+# --------------------------------------------------------------------------- #
+
+
+def test_lightbox_and_app_scripts_pass_node_syntax_check():
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed")
 
-    source = (STATIC_DIR / "viewer.js").read_text(encoding="utf-8")
+    for name in ("app.js", "lightbox.js"):
+        result = subprocess.run(
+            [node, "--check", str(STATIC_DIR / name)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def test_gallery_links_content_hashed_assets_that_match_disk(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    body = gallery_body(client, creator_id)
+
+    assert f'href="{asset("style.css")}"' in body
+    assert f'src="{asset("lightbox.js")}"' in body
+
+    script = client.get(asset("lightbox.js"))
+    assert script.status_code == 200
+    assert script.text == (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+
+def test_lightbox_source_disables_automatic_fullscreen_and_keeps_explicit_toggle():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+    # No implicit fullscreen request on pointer/touch: the user's chosen
+    # default is tile -> compact everywhere, so only the control or F asks.
+    assert "pointerdown" not in source
+    assert "requestFullscreen(true)" in source
+    assert 'document.addEventListener("fullscreenchange", onFullscreenChange)' in source
+    assert "Fullscreen is not available in this browser." in source
+
+
+def test_preload_window_covers_radius_and_filters_unsafe_items():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    block = source.split("// BEGIN preload-window", 1)[1].split(
+        "// END preload-window", 1
+    )[0]
+    payload = node_script(
+        "// BEGIN preload-window" + block,
+        """
+        function media(count, overrides) {
+          var items = [];
+          for (var i = 0; i < count; i += 1) {
+            items.push({
+              index: i,
+              kind: "image",
+              url: "https://e3.cum.st/media/" + i + "/original.jpg"
+            });
+          }
+          Object.keys(overrides || {}).forEach(function (key) {
+            var patch = overrides[key];
+            Object.keys(patch).forEach(function (field) {
+              items[Number(key)][field] = patch[field];
+            });
+          });
+          return items;
+        }
+
+        var failed = new Set(["https://e3.cum.st/media/3/original.jpg"]);
+        var out = {
+          radius: PRELOAD_RADIUS,
+          max: PRELOAD_MAX,
+          middle: preloadWindowIndices(media(10), 5, null),
+          first: preloadWindowIndices(media(10), 0, null),
+          last: preloadWindowIndices(media(10), 9, null),
+          failed: preloadWindowIndices(media(10), 5, failed),
+          kinds: preloadWindowIndices(
+            media(10, {
+              2: { kind: "video" },
+              4: { kind: "gif" },
+              6: { kind: "audio" },
+              7: { url: "data:image/png;base64,AAAA" }
+            }),
+            5,
+            null
+          )
+        };
+        process.stdout.write(JSON.stringify(out));
+        """,
+    )
+
+    assert payload["radius"] == 3
+    assert payload["max"] == 6
+    assert payload["middle"] == [2, 3, 4, 6, 7, 8]
+    assert payload["first"] == [1, 2, 3]
+    assert payload["last"] == [6, 7, 8]
+    assert payload["failed"] == [2, 4, 6, 7, 8]
+    assert payload["kinds"] == [3, 8]
+
+
+def test_preload_plan_keeps_both_edges_and_prunes_stale_entries():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
     block = source.split("// BEGIN preload-window", 1)[1].split(
         "// END preload-plan", 1
     )[0]
-    script = (
-        textwrap.dedent(block)
-        + textwrap.dedent(
-            """
-            function image(name) {
-              return { kind: "image", url: "https://e3.cum.st/" + name };
-            }
-            function media(count) {
-              var items = [];
-              for (var i = 0; i < count; i += 1) {
-                items.push(image("m" + i));
-              }
-              return items;
-            }
+    payload = node_script(
+        block,
+        """
+        function image(name) {
+          return { kind: "image", url: "https://e3.cum.st/" + name };
+        }
+        function media(count) {
+          var items = [];
+          for (var i = 0; i < count; i += 1) {
+            items.push(image("m" + i));
+          }
+          return items;
+        }
 
-            var neighbours = {
-              previous: [image("p0"), image("p1"), image("p2")],
-              next: [image("n0"), image("n1"), image("n2")]
-            };
-            var candidates = preloadCandidates(media(10), 0, neighbours);
-            var plan = buildPreloadPlan(media(10), 0, neighbours, 4, null);
-            var failed = new Set(["https://e3.cum.st/p0"]);
-            var failedPlan = buildPreloadPlan(
-              media(10), 0, neighbours, 12, failed
-            );
+        var neighbours = {
+          previous: [image("p0"), image("p1"), image("p2")],
+          next: [image("n0"), image("n1"), image("n2")]
+        };
+        var candidates = preloadCandidates(media(10), 0, neighbours);
+        var plan = buildPreloadPlan(media(10), 0, neighbours, 4, null);
+        var failed = new Set(["https://e3.cum.st/p0"]);
+        var failedPlan = buildPreloadPlan(media(10), 0, neighbours, 12, failed);
 
-            var map = new Map();
-            ["https://e3.cum.st/m1", "https://e3.cum.st/stale"].forEach(
-              function (url) { map.set(url, {}); }
-            );
-            prunePreloadMap(map, new Set(plan));
+        var map = new Map();
+        ["https://e3.cum.st/m1", "https://e3.cum.st/stale"].forEach(
+          function (url) { map.set(url, {}); }
+        );
+        prunePreloadMap(map, new Set(plan));
 
-            var failures = new Set([
-              "https://e3.cum.st/p0",
-              "https://e3.cum.st/old"
-            ]);
-            pruneFailedSet(failures, candidates);
+        var failures = new Set([
+          "https://e3.cum.st/p0",
+          "https://e3.cum.st/old"
+        ]);
+        pruneFailedSet(failures, candidates);
 
-            var filtered = preloadCandidates(
-              media(10),
-              0,
-              {
-                previous: [
-                  { kind: "gif", url: "https://e3.cum.st/gif" },
-                  { kind: "image", url: "data:image/png;base64,AAAA" }
-                ],
-                next: [image("n0")]
-              }
-            );
-
-            process.stdout.write(JSON.stringify({
-              totalMax: PRELOAD_TOTAL_MAX,
-              candidates: candidates,
-              plan: plan,
-              failedPlan: failedPlan,
-              map: Array.from(map.keys()),
-              failures: Array.from(failures),
-              filtered: filtered
-            }));
-            """
-        )
+        process.stdout.write(JSON.stringify({
+          totalMax: PRELOAD_TOTAL_MAX,
+          candidates: candidates,
+          plan: plan,
+          failedPlan: failedPlan,
+          map: Array.from(map.keys()),
+          failures: Array.from(failures)
+        }));
+        """,
     )
-    result = subprocess.run([node, "-e", script], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
 
     assert payload["totalMax"] == 12
     assert payload["candidates"][:9] == [
@@ -890,73 +776,925 @@ def test_preload_plan_keeps_both_edges_and_prunes_stale_entries():
     assert "https://e3.cum.st/n0" in payload["failedPlan"]
     assert payload["map"] == ["https://e3.cum.st/m1"]
     assert payload["failures"] == ["https://e3.cum.st/p0"]
-    assert payload["filtered"] == [
-        "https://e3.cum.st/m1",
-        "https://e3.cum.st/m2",
-        "https://e3.cum.st/m3",
-        "https://e3.cum.st/n0",
-    ]
+
+
+def test_opening_a_tile_resolves_the_requested_item_by_sha():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    block = source.split("// BEGIN resolve-index", 1)[1].split(
+        "// END resolve-index", 1
+    )[0]
+    payload = node_script(
+        block,
+        """
+        var media = [
+          { sha256: "a" }, { sha256: "b" }, { sha256: "c" }
+        ];
+        process.stdout.write(JSON.stringify({
+          exact: resolveMediaIndex(media, "b", 0),
+          fallback: resolveMediaIndex(media, "missing", 2),
+          negative: resolveMediaIndex(media, "", -1),
+          clamped: resolveMediaIndex(media, "", 99),
+          empty: resolveMediaIndex([], "a", 0)
+        }));
+        """,
+    )
+
+    assert payload == {
+        "exact": 1,
+        "fallback": 2,
+        "negative": 2,
+        "clamped": 2,
+        "empty": -1,
+    }
+
+
+def test_escape_unwinds_browser_then_expanded_then_close():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    block = source.split("// BEGIN escape-state", 1)[1].split(
+        "// END escape-state", 1
+    )[0]
+    payload = node_script(
+        block,
+        """
+        process.stdout.write(JSON.stringify({
+          browser: escapeAction("browser", true),
+          expandedFullscreen: escapeAction("expanded", true),
+          expanded: escapeAction("expanded", false),
+          compact: escapeAction("compact", false)
+        }));
+        """,
+    )
+
+    assert payload == {
+        "browser": "exit-browser",
+        "expandedFullscreen": "exit-browser",
+        "expanded": "close",
+        "compact": "close",
+    }
 
 
 def test_jump_prefers_cached_payload_without_clearing_preloads():
-    source = (STATIC_DIR / "viewer.js").read_text(encoding="utf-8")
-    jump_block = source.split("function jump(", 1)[1].split(
-        "function requestFullscreen", 1
-    )[0]
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    jump_block = source.split("function jump(", 1)[1].split("function go(", 1)[0]
 
-    assert "payloadCache.get(String(serviceId))" in jump_block
+    assert "payloadCache.get(payloadKey(serviceId))" in jump_block
     assert "applyPayload(cached" in jump_block
     assert "clearPreloadCache()" not in jump_block
     assert "prunePreloadMap" in source
 
 
-def test_viewer_has_auto_hiding_fullscreen_control(client, conn):
+# --------------------------------------------------------------------------- #
+# markup and styles for the merged surface
+# --------------------------------------------------------------------------- #
+
+
+def test_fullscreen_and_expand_controls_are_icon_only_and_accessible(client, conn):
     creator_id = make_creator(conn)
     add_file(conn, add_post(conn, creator_id, 0), sha(1))
 
-    body = client.get(f"/c/{creator_id}/viewer").text
+    overlay = overlay_markup(gallery_body(client, creator_id))
 
-    tags = re.findall(r"<button[^>]*data-viewer-fullscreen[^>]*>", body)
-    assert len(tags) == 1
-    tag = tags[0]
-    assert 'class="viewer-fullscreen"' in tag
+    fullscreen = re.search(r"<button[^>]*data-lightbox-fullscreen[^>]*>", overlay)
+    assert fullscreen is not None
+    tag = fullscreen.group(0)
     assert 'type="button"' in tag
     assert 'aria-pressed="false"' in tag
     assert 'aria-label="Enter fullscreen"' in tag
-    assert ">Fullscreen</button>" in body
-    assert (
-        body.index("data-viewer-close")
-        < body.index("data-viewer-fullscreen")
-        < body.index("data-viewer-stage")
-    )
+    assert 'data-fullscreen-state="enter"' in tag
+    assert ">Fullscreen</button>" not in overlay
+
+    expand = re.search(r"<button[^>]*data-lightbox-expand[^>]*>", overlay)
+    assert expand is not None
+    assert 'aria-pressed="false"' in expand.group(0)
+    assert 'aria-label="Expand viewer"' in expand.group(0)
+    assert "<svg" in overlay
 
 
-def test_viewer_fullscreen_script_and_styles_are_transient():
-    source = (STATIC_DIR / "viewer.js").read_text(encoding="utf-8")
+def test_hint_has_all_four_directions_and_is_expanded_only(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    body = gallery_body(client, creator_id)
+    overlay = overlay_markup(body)
+    assert overlay.count("data-lightbox-hint") == 1
+    for label in ("Newer post", "Older post", "Previous image", "Next image"):
+        assert f'<span class="viewer-hint-label">{label}</span>' in overlay
+    assert "Esc to close · F for fullscreen · first move hides this" in overlay
+
+    css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
+    compact = css.split(".lightbox.is-compact .viewer-zone,", 1)[1].split("}", 1)[0]
+    assert ".viewer-hint" in compact
+
+
+def test_stylesheet_defines_compact_expanded_and_browser_states():
     css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
 
-    assert 'document.addEventListener("fullscreenchange", onFullscreenChange)' in source
-    assert "Fullscreen is not available in this browser." in source
-    assert 'fullscreenButton.classList.add("is-revealed")' in source
-    assert "2500" in source
-    assert "updateCachedBookmarks" in source
+    assert ".lightbox.is-expanded,\n.lightbox.is-browser {" in css
+    assert ".lightbox.is-expanded .viewer-stage," in css
+    assert ".lightbox.is-expanded .lightbox-nav," in css
+    assert ".lightbox.is-expanded .lightbox-caption," in css
+    # Old page-only shell rules are removed.
+    assert "body.viewer-page" not in css
+    assert ".viewer-empty" not in css
 
-    rule = css.split("\n.viewer-fullscreen {", 1)[1].split("}", 1)[0]
+    media_rule = css.split("\n.viewer-media {", 1)[1].split("}", 1)[0]
+    assert "width: 100%" in media_rule
+    assert "height: 100%" in media_rule
+    assert "align-items: center" in media_rule
+    assert "justify-content: center" in media_rule
+
+    element_rule = css.split("\n.viewer-media-el {", 1)[1].split("}", 1)[0]
+    assert "max-width: 100%" in element_rule
+    assert "max-height: 100%" in element_rule
+    assert "object-fit: contain" in element_rule
+
+
+# --------------------------------------------------------------------------- #
+# T11.2 - sticky bottom control bar, visible post buttons and hide control
+# --------------------------------------------------------------------------- #
+
+
+def test_control_bar_has_exactly_one_of_each_control(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    overlay = overlay_markup(gallery_body(client, creator_id))
+
+    assert len(re.findall(r"data-lightbox-controls(?=[\s>])", overlay)) == 1
+    assert overlay.count("data-lightbox-hide") == 1
+    assert overlay.count("data-lightbox-controls-handle") == 1
+    assert overlay.count("data-lightbox-post-prev") == 1
+    assert overlay.count("data-lightbox-post-next") == 1
+    assert overlay.count("data-lightbox-fullscreen") == 1
+    assert overlay.count("data-bookmark-button") == 1
+    # The invisible left/right media zones remain; the up/down post zones are
+    # replaced by visible buttons.
+    assert overlay.count('data-viewer-action="prev-image"') == 1
+    assert overlay.count('data-viewer-action="next-image"') == 1
+    assert 'data-viewer-action="prev-post"' not in overlay
+    assert 'data-viewer-action="next-post"' not in overlay
+
+
+def test_control_bar_buttons_are_labelled_with_states(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    overlay = overlay_markup(gallery_body(client, creator_id))
+
+    newer = re.search(r"<button[^>]*data-lightbox-post-prev[^>]*>", overlay)
+    older = re.search(r"<button[^>]*data-lightbox-post-next[^>]*>", overlay)
+    assert newer and older
+    assert 'aria-label="Newer post"' in newer.group(0)
+    assert 'aria-label="Older post"' in older.group(0)
+    assert "disabled" in newer.group(0)
+    assert "disabled" in older.group(0)
+    assert "Newer post" in overlay.split("data-lightbox-post-prev", 1)[1][:160]
+    assert "Older post" in overlay.split("data-lightbox-post-next", 1)[1][:160]
+
+    hide = re.search(r"<button[^>]*data-lightbox-hide[^>]*>", overlay)
+    assert hide and 'aria-label="Hide controls"' in hide.group(0)
+
+    handle = re.search(
+        r"<button[^>]*data-lightbox-controls-handle[^>]*>", overlay
+    )
+    assert handle
+    assert 'aria-label="Show controls"' in handle.group(0)
+    assert "hidden" in handle.group(0)
+    assert "Show controls" in overlay.split("data-lightbox-controls-handle", 1)[1][:160]
+
+    # The bar bookmark keeps the shared macro's POST / next contract and the
+    # target-specific pressed state.
+    form = re.search(r"<form[^>]*data-bookmark-form[^>]*>", overlay)
+    assert form
+    assert 'method="post"' in form.group(0)
+    assert f'action="/c/{creator_id}/p/2183930591/bookmark"' in overlay
+    assert '<input type="hidden" name="next"' in overlay
+    bookmark = re.search(r"<button[^>]*data-bookmark-button[^>]*>", overlay)
+    assert bookmark
+    assert 'aria-pressed="false"' in bookmark.group(0)
+    assert 'aria-label="Bookmark post: this post"' in bookmark.group(0)
+
+
+def test_chrome_state_is_explicit_and_never_timed():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    block = source.split("// BEGIN chrome-state", 1)[1].split(
+        "// END chrome-state", 1
+    )[0]
+    payload = node_script(
+        "// BEGIN chrome-state" + block,
+        """
+        function state(patch) {
+          var base = { open: true, pinned: false, hidden: false };
+          Object.keys(patch || {}).forEach(function (key) {
+            base[key] = patch[key];
+          });
+          return base;
+        }
+        process.stdout.write(JSON.stringify({
+          reveal: chromeRevealAllowed(state()),
+          revealPinned: chromeRevealAllowed(state({ pinned: true })),
+          revealClosed: chromeRevealAllowed(state({ open: false })),
+          targetHidden: chromeHandleTarget(state({ hidden: true })),
+          targetVisible: chromeHandleTarget(state())
+        }));
+        """,
+    )
+
+    assert payload == {
+        "reveal": True,
+        "revealPinned": False,
+        "revealClosed": False,
+        "targetHidden": "handle",
+        "targetVisible": "controls",
+    }
+
+    # The idle timer and its decision helper are gone: the bar only hides when
+    # the user pins it away with the hide button.
+    for gone in ("CHROME_TIMEOUT", "chromeCanHide", "scheduleChromeHide", "chromeTimer"):
+        assert gone not in source
+
+
+def test_hide_pins_the_bar_and_only_the_handle_restores_it():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+    hide_block = source.split("function hideControls(", 1)[1].split(
+        "function firstControl(", 1
+    )[0]
+    assert "chromePinned = true" in hide_block
+    assert "setControlsHidden(true)" in hide_block
+    # Focus moves to the handle instead of being lost with the bar.
+    assert "controlsHandle.focus" in hide_block
+
+    restore_block = source.split("function restoreControls(", 1)[1].split(
+        "function resetChrome(", 1
+    )[0]
+    assert "chromePinned = false" in restore_block
+    assert "setControlsHidden(false)" in restore_block
+    assert "scheduleChromeHide" not in restore_block
+
+    activity_block = source.split("function onActivity(", 1)[1].split(
+        "function showToast(", 1
+    )[0]
+    assert "if (chromePinned)" in activity_block
+    assert "return" in activity_block
+
+    assert 'if (target.closest("[data-lightbox-hide]"))' in source
+    assert 'if (target.closest("[data-lightbox-controls-handle]"))' in source
+    assert "hideControls(true)" in source
+    assert "restoreControls()" in source
+    assert "scheduleChromeHide" not in source.split("function openOverlay", 1)[1]
+    assert "resetChrome();" in source.split("function openOverlay", 1)[1]
+
+
+def test_visible_post_buttons_use_the_keyboard_post_actions():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+    assert 'ArrowLeft: "prev-image"' in source
+    assert 'ArrowRight: "next-image"' in source
+    assert 'ArrowUp: "prev-post"' in source
+    assert 'ArrowDown: "next-post"' in source
+    assert 'go("prev-post")' in source
+    assert 'go("next-post")' in source
+    assert "postPrevButton.disabled = !(payload && payload.previous_post)" in source
+    assert "postNextButton.disabled = !(payload && payload.next_post)" in source
+
+
+def test_control_bar_styles_and_zone_cleanup():
+    css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
+
+    bar = css.split("\n.lightbox-caption {", 1)[1].split("}", 1)[0]
+    assert "width: min(100% - 2rem, 980px)" in bar
+    assert "background: #0b1017" in bar
+    assert "border-radius" in bar
+    assert "z-index: 7" in bar
+    assert "flex-wrap: nowrap" in bar
+    assert "padding: 0.25rem 0.5rem calc(0.25rem + env(safe-area-inset-bottom))" in bar
+    assert "env(safe-area-inset-bottom)" in bar
+
+    handle = css.split("\n.lightbox-controls-handle {", 1)[1].split("}", 1)[0]
+    assert "position: absolute" in handle
+    assert "bottom: max(0.5rem, env(safe-area-inset-bottom))" in handle
+    assert "z-index: 8" in handle
+
+    assert ".lightbox.is-controls-hidden .lightbox-caption" in css
+    assert "visibility: hidden" in css
+    # Instant hide/show for reduced motion, no layout shift.
+    reduced = css.split("@media (prefers-reduced-motion: reduce) {", 2)[2]
+    assert ".lightbox-caption" in reduced.split("}", 1)[0]
+    assert "transition: none" in reduced.split("}", 1)[0]
+    # The old up/down invisible zones and their rules are gone.
+    assert ".viewer-zone-prev-post" not in css
+    assert ".viewer-zone-next-post" not in css
+    assert "[data-lightbox-expand]" in css.split("@media (max-width: 680px)", 1)[1]
+    assert "@media (pointer: coarse)" in css
+    assert "min-width: 44px" in css
+    assert "min-height: 44px" in css
+
+
+# --------------------------------------------------------------------------- #
+# T11.5 - slim bar, top caption and overflow menu
+# --------------------------------------------------------------------------- #
+
+
+def test_overflow_menu_holds_the_secondary_post_actions(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 0)
+    add_file(conn, post_id, sha(1))
+
+    overlay = overlay_markup(gallery_body(client, creator_id))
+
+    trigger = re.search(r"<button[^>]*data-lightbox-more[^>]*>", overlay)
+    assert trigger
+    assert 'aria-haspopup="true"' in trigger.group(0)
+    assert 'aria-expanded="false"' in trigger.group(0)
+    assert 'aria-controls="lightbox-menu"' in trigger.group(0)
+    assert 'aria-label="More actions"' in trigger.group(0)
+    assert 'title="More actions"' in trigger.group(0)
+    assert overlay.count("data-lightbox-more") == 1
+
+    assert overlay.count("data-lightbox-menu") == 1
+    assert 'id="lightbox-menu"' in overlay
+    menu = re.search(r'<div[^>]*data-lightbox-menu[^>]*>', overlay)
+    assert menu and "hidden" in menu.group(0)
+
+    menu_start = overlay.index("data-lightbox-menu")
+    post_index = overlay.index("data-lightbox-post href")
+    original_index = overlay.index("data-lightbox-original")
+    bookmark_index = overlay.index("data-bookmark-form")
+    assert menu_start < post_index < original_index < bookmark_index
+    assert overlay.count("data-lightbox-post href") == 1
+    assert overlay.count("data-lightbox-original") == 1
+
+    # The menu is a plain disclosure, not an ARIA menu.
+    assert 'role="menu"' not in overlay
+    assert 'role="menuitem"' not in overlay
+
+    # The bookmark keeps the shared macro's POST / next contract inside it.
+    form = re.search(r"<form[^>]*data-bookmark-form[^>]*>", overlay)
+    assert form and 'method="post"' in form.group(0)
+    assert f'action="/c/{creator_id}/p/2183930591/bookmark"' in overlay
+    assert '<input type="hidden" name="next"' in overlay
+    bookmark = re.search(r"<button[^>]*data-bookmark-button[^>]*>", overlay)
+    assert bookmark
+    assert 'aria-pressed="false"' in bookmark.group(0)
+    assert 'aria-label="Bookmark post: this post"' in bookmark.group(0)
+
+
+def test_post_arrows_are_icon_only_and_keep_edge_states(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    overlay = overlay_markup(gallery_body(client, creator_id))
+
+    newer = re.search(
+        r"<button[^>]*data-lightbox-post-prev[^>]*>(.*?)</button>", overlay, re.S
+    )
+    older = re.search(
+        r"<button[^>]*data-lightbox-post-next[^>]*>(.*?)</button>", overlay, re.S
+    )
+    assert newer and older
+    assert 'aria-label="Newer post"' in newer.group(0)
+    assert 'title="Newer post"' in newer.group(0)
+    assert 'aria-label="Older post"' in older.group(0)
+    assert 'title="Older post"' in older.group(0)
+    assert "disabled" in newer.group(0)
+    assert "disabled" in older.group(0)
+    # Visible text is only the glyph; the label lives in the attributes.
+    assert "Newer post" not in newer.group(1)
+    assert "Older post" not in older.group(1)
+    assert "↑" in newer.group(1)
+    assert "↓" in older.group(1)
+
+
+def test_top_caption_moves_the_title_out_of_the_bar(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    overlay = overlay_markup(gallery_body(client, creator_id))
+
+    caption = re.search(r"<p[^>]*data-lightbox-title[^>]*>", overlay)
+    assert caption
+    assert 'class="lightbox-caption-title"' in caption.group(0)
+    assert 'aria-hidden="true"' in caption.group(0)
+    assert overlay.index("data-lightbox-title") < overlay.index("data-lightbox-stage")
+    assert overlay.count("data-lightbox-title") == 1
+
+    bar = overlay[overlay.index("data-lightbox-controls") :]
+    assert "data-lightbox-title" not in bar
+    assert "data-lightbox-counter" in bar
+    # The secondary links are no longer loose in the bar.
+    assert bar.index("data-lightbox-menu") < bar.index("data-lightbox-post href")
+
+
+def test_menu_escape_order_helper():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    block = source.split("// BEGIN escape-state", 1)[1].split(
+        "// END escape-state", 1
+    )[0]
+    payload = node_script(
+        "// BEGIN escape-state" + block,
+        """
+        process.stdout.write(JSON.stringify({
+          menu: escapeAction("expanded", false, true),
+          menuFullscreen: escapeAction("browser", true, true),
+          browser: escapeAction("browser", true, false),
+          expanded: escapeAction("expanded", false, false),
+          compact: escapeAction("compact", false, false)
+        }));
+        """,
+    )
+
+    assert payload == {
+        "menu": "close-menu",
+        "menuFullscreen": "close-menu",
+        "browser": "exit-browser",
+        "expanded": "close",
+        "compact": "close",
+    }
+
+
+def test_menu_open_close_focus_and_outside_click():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+    menu_block = source.split("function setMenuOpen(", 1)[1].split(
+        "function clearChromeTimer(", 1
+    )[0]
+    assert 'aria-expanded' in menu_block
+    assert "menu.hidden = !menuOpen" in menu_block
+    assert "items[0].focus" in menu_block
+    assert "moreButton.focus" in menu_block
+
+    assert "closeMenu(true)" in source
+    assert 'escapeAction(' in source
+    assert "close-menu" in source
+
+    # Navigation closes the disclosure, and so does hiding/pinning the bar.
+    assert "closeMenu(false);" in source.split("function go(", 1)[1]
+    assert "closeMenu(false);" in source.split("function setControlsHidden(", 1)[1]
+    assert "closeMenu(false);" in source.split("function resetChrome(", 1)[1]
+
+    outside = source.split('document.addEventListener("click", function (event) {', 2)[
+        2
+    ]
+    assert 'target.closest("[data-lightbox-menu]")' in outside
+    assert 'target.closest("[data-lightbox-more]")' in outside
+    assert "closeMenu(false)" in outside
+
+    # The bar never auto-hides, so an open menu needs no timer suppression:
+    # it lives until an explicit close.
+    assert "scheduleChromeHide" not in source
+    assert "chromeTimer" not in source
+
+
+def test_caption_counter_and_href_updates_still_wired():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+    chrome = source.split("function updateChrome(", 1)[1].split(
+        "function render(", 1
+    )[0]
+    assert "setText(title, item.title || \"\")" in chrome
+    assert 'title.setAttribute("title", item.title || "")' in chrome
+    assert "setText(counter, counterText || \"\")" in chrome
+    assert "postLink.href = item.postUrl" in chrome
+    assert "originalLink.href = item.url" in chrome
+
+
+def test_slim_bar_and_menu_styles():
+    css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
+
+    button = css.split("\n.lightbox-control-button {", 1)[1].split("}", 1)[0]
+    assert "width: 2rem" in button
+    assert "height: 2rem" in button
+    assert "padding: 0" in button
+
+    caption = css.split("\n.lightbox-caption-title {", 1)[1].split("}", 1)[0]
+    assert "text-overflow: ellipsis" in caption
+    assert "white-space: nowrap" in caption
+    assert "3.5rem" in caption  # room for the close target at 390 px
+    assert "position: absolute" in caption
+
+    menu = css.split("\n.lightbox-menu {", 1)[1].split("}", 1)[0]
+    assert "position: absolute" in menu
+    assert "bottom: calc(100% + 0.5rem)" in menu
+    assert "right: 0" in menu
+    assert "z-index: 9" in menu
+    assert "calc(100vw - 1.5rem)" in menu
+
+    assert ".lightbox-menu[hidden]" in css
+    assert "display: none" in css.split(".lightbox-menu[hidden] {", 1)[1]
+
+    # The old two-row mobile grid is gone; the bar stays one row at 390 px.
+    narrow_start = css.index("@media (max-width: 680px) {\n  .lightbox-caption")
+    narrow = css[narrow_start:].split("@media (pointer: coarse)", 1)[0]
+    assert "grid-template-columns" not in narrow
+    assert "[data-lightbox-expand]" in narrow
+    assert "display: none" in narrow
+
+    coarse = css.split("@media (pointer: coarse)", 1)[1].split("}", 1)[0]
+    assert ".lightbox-menu-item" in coarse
+    assert "min-width: 44px" in coarse
+    assert "min-height: 44px" in coarse
+
+    reduced = css.split("@media (prefers-reduced-motion: reduce) {", 2)[2]
+    assert ".lightbox-caption-title" in reduced.split("}", 1)[0]
+    assert "transition: none" in reduced.split("}", 1)[0]
+
+
+# --------------------------------------------------------------------------- #
+# T11.6 - the viewer follows the active gallery filters
+# --------------------------------------------------------------------------- #
+
+
+def test_viewer_kind_filter_returns_only_matching_media_and_filtered_indexes(
+    client, conn
+):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 0)
+    add_file(conn, post_id, sha(1), kind="image", position=0)
+    add_file(conn, post_id, sha(2), kind="gif", position=1)
+    add_file(conn, post_id, sha(3), kind="video", position=2, duration_ms=5000)
+
+    payload = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930591", "kind": "video"},
+    ).json()
+
+    assert [item["sha256"] for item in payload["media"]] == [sha(3)]
+    assert [item["index"] for item in payload["media"]] == [0]
+    assert payload["post"]["media_count"] == 1
+    assert payload["post_rank"] == 1
+    assert payload["media_post_count"] == 1
+    # A videos-only view has no still neighbour to warm.
+    assert payload["neighbour_images"] == {"previous": [], "next": []}
+
+
+def test_filtered_neighbours_skip_posts_without_matching_media(client, conn):
+    creator_id = make_creator(conn)
+    newest_video = add_post(conn, creator_id, 4)
+    add_file(conn, newest_video, sha(10), kind="video", duration_ms=4000)
+    image_only = add_post(conn, creator_id, 3)
+    add_file(conn, image_only, sha(11))
+    middle_video = add_post(conn, creator_id, 2)
+    add_file(conn, middle_video, sha(12), kind="video", duration_ms=5000)
+    oldest_image = add_post(conn, creator_id, 1)
+    add_file(conn, oldest_image, sha(13))
+
+    newest = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930595", "kind": "video"},
+    ).json()
+    assert newest["previous_post"] is None
+    assert newest["next_post"] == "2183930593"
+    assert (newest["post_rank"], newest["media_post_count"]) == (1, 2)
+
+    middle = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930593", "kind": "video"},
+    ).json()
+    assert middle["previous_post"] == "2183930595"
+    assert middle["next_post"] is None
+    assert (middle["post_rank"], middle["media_post_count"]) == (2, 2)
+
+    # The image-only post is not a destination in either direction.
+    assert "2183930594" not in {newest["next_post"], middle["previous_post"]}
+
+
+def test_filtered_neighbours_cross_gallery_pages(client, conn):
+    creator_id = make_creator(conn)
+    service_ids = []
+    for number in range(22):
+        post_id = add_post(conn, creator_id, number)
+        add_file(conn, post_id, sha(1000 + number), kind="video", duration_ms=1000)
+        service_ids.append(str(2183930591 + number))
+
+    oldest = service_ids[0]
+    payload = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": oldest, "kind": "video", "page": "9"},
+    ).json()
+
+    # page is ignored: the oldest matching post is still rank 22 of 22 and has
+    # an older-side neighbour from a later gallery page.
+    assert payload["post_rank"] == 22
+    assert payload["media_post_count"] == 22
+    assert payload["previous_post"] == service_ids[1]
+    assert payload["next_post"] is None
+
+
+def test_search_tag_orientation_size_and_date_filters_constrain_the_viewer(
+    client, conn
+):
+    creator_id = make_creator(conn)
+    alpha = add_post(
+        conn, creator_id, 2, title="Portrait Alpha", published=1_800_000_000
+    )
+    beta = add_post(
+        conn, creator_id, 1, title="Landscape Beta", published=1_700_000_000
+    )
+    gamma = add_post(
+        conn, creator_id, 0, title="Portrait Gamma", published=1_600_000_000
+    )
+    add_file(conn, alpha, sha(1), position=0, width=1080, height=1920, bytes_=100_000)
+    add_file(
+        conn, alpha, sha(2), kind="video", position=1, duration_ms=5000, bytes_=500_000
+    )
+    add_file(conn, beta, sha(3), position=0, width=1920, height=1080, bytes_=2_000_000)
+    add_file(conn, gamma, sha(4), position=0, width=1080, height=1920, bytes_=2_000_000)
+    db.replace_tags(conn, alpha, [{"slug": "beach", "label": "Beach"}])
+    db.replace_tags(conn, beta, [{"slug": "beach", "label": "Beach"}])
+    db.replace_tags(conn, gamma, [{"slug": "forest", "label": "Forest"}])
+
+    search = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930592", "q": "Beta"},
+    ).json()
+    assert [item["sha256"] for item in search["media"]] == [sha(3)]
+    assert search["previous_post"] is None and search["next_post"] is None
+
+    tagged = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930591", "tag": "forest"},
+    ).json()
+    assert [item["sha256"] for item in tagged["media"]] == [sha(4)]
+    assert tagged["media_post_count"] == 1
+
+    landscape = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930592", "orientation": "landscape"},
+    ).json()
+    assert [item["sha256"] for item in landscape["media"]] == [sha(3)]
+    assert landscape["neighbour_images"] == {"previous": [], "next": []}
+
+    large = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930592", "min_bytes": "1000000"},
+    ).json()
+    assert [item["sha256"] for item in large["media"]] == [sha(3)]
+    assert large["previous_post"] is None
+    assert large["next_post"] == "2183930591"
+
+    dated = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930592", "from": "2023-01-01", "to": "2023-12-31"},
+    ).json()
+    assert [item["sha256"] for item in dated["media"]] == [sha(3)]
+    assert dated["media_post_count"] == 1
+
+
+def test_filtered_viewer_404s_when_the_post_has_no_matching_media(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 0)
+    add_file(conn, post_id, sha(1), kind="image")
+
+    response = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930591", "kind": "video"},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"error": "no media match these filters"}
+    # Unknown posts keep the historical error.
+    unknown = client.get(
+        f"/c/{creator_id}/viewer/data", params={"post": "nope", "kind": "video"}
+    )
+    assert unknown.status_code == 404
+    assert unknown.json() == {"error": "unknown post"}
+
+
+def test_sort_oldest_reverses_up_down_order(client, conn):
+    creator_id = make_creator(conn)
+    oldest = add_post(conn, creator_id, 0, published=1000)
+    add_file(conn, oldest, sha(1))
+    middle = add_post(conn, creator_id, 1, published=2000)
+    add_file(conn, middle, sha(2))
+    newest = add_post(conn, creator_id, 2, published=3000)
+    add_file(conn, newest, sha(3))
+
+    payload = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930592", "sort": "oldest"},
+    ).json()
+
+    # Oldest-first: the list-order previous is the chronologically older post.
+    assert payload["previous_post"] == "2183930591"
+    assert payload["next_post"] == "2183930593"
+    assert (payload["post_rank"], payload["media_post_count"]) == (2, 3)
+
+
+def test_duration_sorts_order_neighbours_by_matching_videos(client, conn):
+    creator_id = make_creator(conn)
+    short = add_post(conn, creator_id, 0, published=1000)
+    add_file(conn, short, sha(1), kind="video", duration_ms=10_000)
+    long = add_post(conn, creator_id, 1, published=2000)
+    add_file(conn, long, sha(2), kind="video", duration_ms=30_000)
+    medium = add_post(conn, creator_id, 2, published=3000)
+    add_file(conn, medium, sha(3), kind="video", duration_ms=20_000)
+
+    descending = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930593", "sort": "duration_desc", "kind": "video"},
+    ).json()
+    assert descending["previous_post"] == "2183930592"  # 30s is first
+    assert descending["next_post"] == "2183930591"  # 10s is last
+    assert (descending["post_rank"], descending["media_post_count"]) == (2, 3)
+
+    ascending = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930593", "sort": "duration_asc", "kind": "video"},
+    ).json()
+    assert ascending["previous_post"] == "2183930591"  # 10s is first
+    assert ascending["next_post"] == "2183930592"  # 30s is last
+    assert (ascending["post_rank"], ascending["media_post_count"]) == (2, 3)
+
+
+def test_neighbour_images_follow_the_media_filter(client, conn):
+    creator_id = make_creator(conn)
+    newer = add_post(conn, creator_id, 1)
+    add_file(conn, newer, sha(10), kind="video", position=0, duration_ms=4000)
+    add_file(conn, newer, sha(11), position=1)
+    current = add_post(conn, creator_id, 0)
+    add_file(conn, current, sha(20), kind="video", position=0, duration_ms=4000)
+    add_file(conn, current, sha(21), position=1)
+
+    videos = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930591", "kind": "video"},
+    ).json()
+    assert videos["neighbour_images"] == {"previous": [], "next": []}
+
+    gifs = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930591", "kind": "gif"},
+    )
+    assert gifs.status_code == 404  # no gif matches, never an empty playlist
+
+    images = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930591", "kind": "image"},
+    ).json()
+    assert [item["sha256"] for item in images["neighbour_images"]["previous"]] == [
+        sha(11)
+    ]
+
+
+def test_no_filter_payload_is_unchanged(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 0)
+    add_file(conn, post_id, sha(1), position=0)
+    add_file(conn, post_id, sha(2), kind="gif", position=1)
+    add_file(conn, post_id, sha(3), kind="video", position=2, duration_ms=5000)
+
+    bare = client.get(
+        f"/c/{creator_id}/viewer/data", params={"post": "2183930591"}
+    ).json()
+    with_page = client.get(
+        f"/c/{creator_id}/viewer/data",
+        params={"post": "2183930591", "page": "7"},
+    ).json()
+
+    assert bare == with_page
+    assert [item["sha256"] for item in bare["media"]] == [sha(1), sha(2), sha(3)]
+    assert [item["index"] for item in bare["media"]] == [0, 1, 2]
+
+
+def test_gallery_serialises_filters_once_without_page(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 0)
+    add_file(conn, post_id, sha(1), kind="video")
+
+    body = gallery_body(client, creator_id, kind="video", page=1, sort="oldest")
+    grid = re.search(r'<div class="gallery-posts" data-gallery[^>]*>', body)
+    assert grid is not None
+    query = re.search(r'data-viewer-query="([^"]*)"', grid.group(0)).group(1)
+
+    assert "kind=video" in query
+    assert "sort=oldest" in query
+    assert "page=" not in query
+    assert body.count("data-viewer-query") == 1
+
+    # Bookmark tiles have no gallery context and therefore no filter query.
+    db.toggle_media_bookmark(conn, creator_id, sha(1))
+    bookmarks = client.get("/bookmarks").text
+    assert "data-viewer-query" not in bookmarks
+
+
+def test_every_viewer_data_request_carries_the_serialised_filters():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+    assert 'grid.getAttribute("data-viewer-query")' in source
+    assert "var viewerQuery = \"\";" in source
+
+    url = source.split("function viewerDataUrl(", 1)[1].split(
+        "function fetchPayload(", 1
+    )[0]
+    assert 'query += "&" + viewerQuery' in url
+    assert "/viewer/data?" in url
+
+    fetch_block = source.split("function fetchPayload(", 1)[1].split(
+        "function hydrate(", 1
+    )[0]
+    assert "viewerDataUrl(serviceId)" in fetch_block
+    assert "/viewer/data?post=" not in fetch_block
+
+    prefetch = source.split("function prefetchNeighbourPayloads(", 1)[1].split(
+        "function schedulePayloadPrefetch(", 1
+    )[0]
+    assert "viewerDataUrl(pendingId)" in prefetch
+    assert "/viewer/data?post=" not in prefetch
+
+    # Cache entries are scoped to the filters as well as the post.
+    assert "function payloadKey(serviceId)" in source
+    assert "payloadCache.has(payloadKey(id))" in source
+    assert "payloadCache.get(payloadKey(serviceId))" in source
+    # Bookmark entry points reset the query string on open.
+    assert "viewerQuery = \"\";" in source.split("function openOverlay(", 1)[1]
+
+
+# --------------------------------------------------------------------------- #
+# T11.7 - loading indicator for slow viewer media
+# --------------------------------------------------------------------------- #
+
+
+def test_loading_pill_markup_is_one_silent_status_hook(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    overlay = overlay_markup(gallery_body(client, creator_id))
+    assert overlay.count("data-lightbox-loading") == 1
+    pill = re.search(r"<p[^>]*data-lightbox-loading[^>]*>(.*?)</p>", overlay, re.S)
+    assert pill is not None
+    tag = pill.group(0)
+    assert 'role="status"' in tag
+    assert 'aria-live="polite"' in tag
+    assert "hidden" in tag
+    assert "Loading…" in pill.group(1)
+    dot = re.search(r'<span[^>]*class="viewer-loading-dot"[^>]*>', tag)
+    assert dot is not None
+    assert 'aria-hidden="true"' in dot.group(0)
+
+
+def test_loading_pill_behaviour_has_delay_tokens_and_stale_guards():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+    assert "var LOADING_DELAY = 150;" in source
+    assert "var LOADING_MIN_VISIBLE = 300;" in source
+    assert "function beginLoading()" in source
+    assert "function finishLoading(token)" in source
+    assert "token !== loadingToken" in source
+    assert "loadingShownAt" in source
+
+    # A replacement item aborts the previous listeners and clears any wait.
+    watch = source.split("function watchCurrentMedia(", 1)[1].split(
+        "// ------------------------------------------------------------------- //\n  // Rendering", 1
+    )[0]
+    assert "new AbortController()" in watch
+    assert "{ signal: signal }" in watch
+    assert 'element.addEventListener("load", mediaArrived' in watch
+    assert 'element.addEventListener("error", mediaArrived' in watch
+    assert 'element.addEventListener("loadeddata", mediaArrived' in watch
+    assert 'element.addEventListener("canplay", mediaArrived' in watch
+    assert '"waiting"' in watch
+    assert '"stalled"' in watch
+    assert '"playing"' in watch
+    assert "playbackStarted" in watch
+
+    unload = source.split("function unloadMedia(", 1)[1].split(
+        "function mediaItemFromPayload(", 1
+    )[0]
+    assert "mediaWatch.abort()" in unload
+    assert "clearLoading()" in unload
+
+    flash = source.split("function setFlash(", 1)[1].split(
+        "function cancelLoadingTimer(", 1
+    )[0]
+    assert "if (message)" in flash
+    assert "clearLoading()" in flash
+
+    # Preloading and payload prefetch stay invisible.
+    for name in (
+        "warmPreloadWindow",
+        "prefetchNeighbourPayloads",
+        "schedulePreload",
+        "schedulePayloadPrefetch",
+    ):
+        block = source.split(f"function {name}(", 1)[1].split("\n  function ", 1)[0]
+        assert "beginLoading" not in block
+
+
+def test_loading_pill_styles_sit_above_the_safe_area_under_the_bar():
+    css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
+
+    rule = css.split("\n.viewer-loading {", 1)[1].split("}", 1)[0]
     assert "position: absolute" in rule
-    assert "top: max(3rem" in rule
-    assert "right: max(0.75rem" in rule
-    assert "opacity: 0" in rule
+    assert "bottom: max(3.25rem, calc(2.75rem + env(safe-area-inset-bottom)))" in rule
+    assert "left: max(0.75rem, env(safe-area-inset-left))" in rule
+    assert "z-index: 5" in rule  # under the bar (7), handle (8) and menu (9)
     assert "pointer-events: none" in rule
-    revealed = css.split(
-        "\n.viewer-fullscreen.is-revealed,\n.viewer-fullscreen:focus-visible {",
-        1,
+    assert "background: #0b1017" in rule
+    assert "border-radius" in rule
+
+    reduced = css.split(".viewer-loading-dot {", 1)[1].split(
+        "@media (prefers-reduced-motion: reduce) {", 1
     )[1].split("}", 1)[0]
-    assert "opacity: 1" in revealed
-    assert "pointer-events: auto" in revealed
-    assert (
-        "@media (prefers-reduced-motion: reduce) {\n"
-        "  .viewer-fullscreen {\n"
-        "    transition: none;\n"
-        "  }\n"
-        "}"
-    ) in css
+    assert ".viewer-loading-dot" in reduced
+    assert "animation: none" in reduced

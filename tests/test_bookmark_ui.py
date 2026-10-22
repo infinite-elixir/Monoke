@@ -92,14 +92,7 @@ def sha(number: int) -> str:
     return f"{number:064x}"
 
 
-def embedded_state(body: str) -> dict:
-    match = re.search(
-        r'<script type="application/json" id="viewer-initial">(.*?)</script>',
-        body,
-        re.S,
-    )
-    assert match is not None
-    return json.loads(match.group(1))
+
 
 
 # --------------------------------------------------------------------------- #
@@ -119,7 +112,9 @@ def test_creator_page_renders_bookmarked_state_per_row(client, conn):
     assert len(buttons) == 2
     assert sum('aria-pressed="true"' in button for button in buttons) == 1
     assert sum('aria-pressed="false"' in button for button in buttons) == 1
-    assert "Bookmarked" in body
+    assert body.count('class="bookmark-icon"') == 2
+    assert ">Bookmarked<" not in body
+    assert ">Bookmark<" not in body
     assert "Bookmark post: Saved post" in body
     assert "Bookmark post: Unsaved post" in body
 
@@ -157,7 +152,7 @@ def test_gallery_renders_one_toggle_per_tile_outside_the_anchor(client, conn):
     anchors = re.findall(r'<a class="gallery-thumb".*?</a>', body, re.S)
     assert len(anchors) == 3
     assert all("<button" not in anchor for anchor in anchors)
-    assert body.count("data-bookmark-target=") == 3
+    assert body.count("data-bookmark-target=") == 4
     assert body.count("gallery-bookmark") >= 3
     buttons = re.findall(r"<button[^>]*data-bookmark-button[^>]*>", body)
     assert sum('aria-pressed="true"' in button for button in buttons) == 1
@@ -203,7 +198,7 @@ def test_viewer_payload_marks_post_and_each_media_item(client, conn):
     db.toggle_post_bookmark(conn, creator_id, "900001")
     db.toggle_media_bookmark(conn, creator_id, sha(2))
 
-    state = embedded_state(client.get(f"/c/{creator_id}/viewer").text)
+    state = client.get(f"/c/{creator_id}/viewer/data").json()
 
     assert state["post"]["bookmarked"] is True
     assert state["media"][0]["bookmarked"] is False
@@ -227,18 +222,79 @@ def test_viewer_json_toggle_round_trips_for_post_and_media(client, conn):
     assert client.post(post_url).json()["bookmarked"] is False
 
 
-def test_viewer_script_wires_b_and_shift_b_without_visible_chrome(client, conn):
+def test_viewer_script_wires_b_and_shift_b_with_visible_bar_bookmark(client, conn):
     from monoke.web.templating import STATIC_DIR
 
     creator_id = make_creator(conn)
     add_file(conn, add_post(conn, creator_id, 1), sha(1))
 
-    body = client.get(f"/c/{creator_id}/viewer").text
-    script = (STATIC_DIR / "viewer.js").read_text(encoding="utf-8")
+    body = client.get(f"/c/{creator_id}/gallery").text
+    script = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    overlay = body[body.index('id="gallery-lightbox"') :]
 
     assert 'event.key === "b" || event.key === "B"' in script
     assert 'toggleBookmark(event.key === "B" ? "post" : "media")' in script
-    assert "data-viewer-toast" in body
-    assert 'data-viewer-toast aria-hidden="true" hidden' in body
-    # No persistent bookmark button is added to the viewer chrome.
-    assert "data-bookmark-button" not in body
+    assert "data-lightbox-toast" in overlay
+    assert 'data-lightbox-toast aria-hidden="true" hidden' in overlay
+    # T11.2 adds exactly one persistent bookmark toggle in the sticky bar; the
+    # b / Shift+B keyboard paths stay alongside it.
+    assert overlay.count("data-bookmark-button") == 1
+    assert overlay.count("data-lightbox-controls") >= 1
+    assert 'data-bookmark-target="post"' in overlay
+
+
+# --------------------------------------------------------------------------- #
+# T4.9 - icon-only controls
+# --------------------------------------------------------------------------- #
+
+
+def test_every_surface_renders_an_icon_without_visible_state_text(client, conn):
+    from monoke.web.templating import STATIC_DIR
+
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 1, title="Icon post")
+    add_file(conn, post_id, sha(1), kind="image")
+    add_file(conn, post_id, sha(2), kind="video")
+    db.toggle_media_bookmark(conn, creator_id, sha(2))
+
+    bodies = {
+        "creator": client.get(f"/c/{creator_id}").text,
+        "post": client.get(f"/c/{creator_id}/p/900001").text,
+        "gallery": client.get(f"/c/{creator_id}/gallery").text,
+        "bookmarks": client.get("/bookmarks").text,
+    }
+
+    for surface, body in bodies.items():
+        assert "bookmark-icon" in body, surface
+        assert ">Bookmark<" not in body, surface
+        assert ">Bookmarked<" not in body, surface
+        assert "aria-pressed=" in body, surface
+        # Every control is still a plain form POST.
+        assert "data-bookmark-form" in body, surface
+
+    post_body = bodies["post"]
+    assert post_body.count('class="bookmark-icon"') == 3
+    post_buttons = re.findall(r"<button[^>]*data-bookmark-button[^>]*>", post_body)
+    assert sum('aria-pressed="true"' in button for button in post_buttons) == 1
+    assert 'title="Remove bookmark"' in post_body
+
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    toggle = script.split("function toggleBookmarkForm", 1)[1].split(
+        "function copyAllLinks", 1
+    )[0]
+    assert 'button.textContent = on ? "Bookmarked" : "Bookmark";' not in toggle
+    assert 'button.classList.toggle("is-bookmarked", on)' in toggle
+    assert 'button.setAttribute("aria-pressed"' in toggle
+
+
+def test_bookmarked_tile_swaps_the_filled_glyph(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 1)
+    add_file(conn, post_id, sha(1))
+    db.toggle_media_bookmark(conn, creator_id, sha(1))
+
+    body = client.get(f"/c/{creator_id}/gallery").text
+
+    assert 'class="button button-small bookmark-button bookmark-compact is-bookmarked gallery-bookmark"' in body
+    assert 'aria-pressed="true"' in body
+    assert "bookmark-icon" in body
