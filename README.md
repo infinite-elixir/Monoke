@@ -9,7 +9,7 @@ want. Nothing leaves your machine.
 Monoke never downloads media. Attachments are stored as metadata with a **Load** button
 that streams the file into your browser on demand.
 
-![Monoke home page — paste a creator URL and browse archived creators](example_screenshots/Screenshot%20from%202026-10-21%2018-52-12.png)
+![Monoke home page — sidebar navigation, creator URL form and creator cards](example_screenshots/home.png)
 
 ## What you get
 
@@ -37,19 +37,32 @@ that streams the file into your browser on demand.
   syncs are incremental and safe to re-run.
 - **Quiet by design** — binds `127.0.0.1`, no accounts, no telemetry, no media mirroring,
   no external frontend assets and no build step.
+- **Purpose-built, dependency-free UI** — dark-only Tokyo Night palette, the self-hosted
+  Caskaydia Cove Nerd Font, a fixed sidebar for navigation and archive status, and a
+  compact per-page top bar. See [STYLE.md](STYLE.md) for the design rules.
 
 ## Screenshots
 
-| Creator page | Gallery |
+| Home / Creators | Creator page |
 |---|---|
-| ![Creator page with stats, filters and post list](example_screenshots/Screenshot%20from%202026-10-21%2018-52-26.png) | ![Blurred media gallery with filters](example_screenshots/Screenshot%20from%202026-10-21%2018-52-54.png) |
+| ![Home page with the creator URL form and creator cards](example_screenshots/home.png) | ![Creator page with stats, filters and post list](example_screenshots/creator.png) |
 
-| Bookmarks |
+| Gallery | Merged lightbox / viewer |
+|---|---|
+| ![Blurred media gallery grouped by post](example_screenshots/gallery.png) | ![Fullscreen viewer with a blurred image and overlay controls](example_screenshots/viewer.png) |
+
+| Link explorer | Bookmarks |
+|---|---|
+| ![Every saved link, classified and filterable](example_screenshots/links.png) | ![Bookmarks library grouped by creator](example_screenshots/bookmarks-posts.png) |
+
+| Media bookmarks |
 |---|
-| ![Bookmarks library with post and media tabs](example_screenshots/Screenshot%20from%202026-10-21%2018-53-01.png) |
+| ![Media bookmarks as a tile grid](example_screenshots/bookmarks-media.png) |
 
-The gallery and thumbnails are blurred by default; the **Blur** toggle in the header is
-persisted in `localStorage`.
+The interface is dark-only: a Tokyo Night palette with the self-hosted Caskaydia Cove
+Nerd Font, a fixed left sidebar for navigation and archive status, and a compact top bar
+per page. The gallery and thumbnails are blurred by default; the **Blur** toggle in the
+top bar is persisted in `localStorage`.
 
 ## Requirements
 

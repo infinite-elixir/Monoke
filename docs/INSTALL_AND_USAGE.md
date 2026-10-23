@@ -236,21 +236,31 @@ Sample output:
 
 ## 6. Tour of the web app
 
-![Home page](../example_screenshots/Screenshot%20from%202026-10-21%2018-52-12.png)
+![Home page](../example_screenshots/home.png)
 
 ### 6.1 Global controls
 
-The header is the same on every page:
+The layout is the same on every page: a fixed left sidebar and a compact top bar.
+
+**Sidebar**
 
 - **Monoke** — back to the creator list.
 - **Creators** — home, add creator, creator cards.
 - **Links** — the archive-wide link explorer.
 - **Bookmarks** — your local post and media library.
-- **Theme** — toggles dark/light. The choice is saved in `localStorage` and follows the
-  OS preference on first visit.
-- **Blur: on/off** — blurs thumbnails and gallery tiles by default. The choice persists.
+- **Status block** — data directory, last sync time, service state and app version.
 
-The footer shows the active data directory, the last sync time and the app version.
+On narrow screens the sidebar becomes a drawer; the `≡` button in the top bar opens it,
+`Esc` or resizing back to desktop closes it.
+
+**Top bar**
+
+- Breadcrumb for the current page.
+- **Blur: on/off** — blurs thumbnails and gallery tiles by default. The choice persists
+  in `localStorage`.
+
+The interface is dark-only, with a Tokyo Night palette and the self-hosted Caskaydia Cove
+Nerd Font. There is no theme switch and no light palette.
 
 Keyboard:
 - `Tab` walks the page normally; there is a skip link at the top.
@@ -278,7 +288,7 @@ duplicate.
 
 ### 6.3 Creator page
 
-![Creator page](../example_screenshots/Screenshot%20from%202026-10-21%2018-52-26.png)
+![Creator page](../example_screenshots/creator.png)
 
 The creator page is the main browsing screen.
 
@@ -329,7 +339,7 @@ page.
 
 **Sync progress**
 
-While a sync is running, a progress panel appears under the header with the current
+While a sync is running, a progress panel appears under the top bar with the current
 phase, elapsed time, a bar, `done / total posts`, links found and a **Cancel** button.
 Progress is streamed over SSE and survives a page reload while the server keeps running.
 
@@ -371,7 +381,7 @@ Click a post row to open the post. The page has:
 
 ### 6.5 Gallery
 
-![Gallery](../example_screenshots/Screenshot%20from%202026-10-21%2018-52-54.png)
+![Gallery](../example_screenshots/gallery.png)
 
 Each creator has a media grid at `/c/{id}/gallery`, grouped into one section per post,
 newest posts first. Pagination counts posts, so a post's media stay together.
@@ -402,6 +412,8 @@ Click any tile, or **Open viewer** for the first tile on the page.
 A gallery tile opens the lightbox in place. The same surface expands into the
 full-viewport viewer and can then request browser fullscreen; there is no separate
 viewer page and no page navigation.
+
+![Expanded viewer with overlay controls](../example_screenshots/viewer.png)
 
 - Shows one media item at a time with a counter (`3 / 42`).
 - Media is loaded from the cum.st edge host; nothing is cached to disk.
@@ -442,9 +454,11 @@ never renders HTML.
 
 ### 6.7 Links explorer
 
-Open **Links** in the header for the archive-wide view, or **Links** on a creator page for
+Open **Links** in the sidebar for the archive-wide view, or **Links** on a creator page for
 a creator-scoped view. This is the fastest way to answer "where did I save that MEGA
 folder?"
+
+![Link explorer with category summary and filters](../example_screenshots/links.png)
 
 **Summary strip** shows totals per category for the current filter.
 
@@ -478,7 +492,7 @@ See [11. Exports](#11-exports) for columns.
 
 ### 6.8 Bookmarks
 
-![Bookmarks](../example_screenshots/Screenshot%20from%202026-10-21%2018-53-01.png)
+![Bookmarks grouped by creator](../example_screenshots/bookmarks-posts.png)
 
 Bookmarks are local to your database and survive re-syncs. Upstream deletion does not
 remove them.
@@ -495,6 +509,10 @@ remove them.
 
 Bookmark controls appear on creator post rows, post pages, attachment rows, gallery
 tiles and inside the fullscreen viewer.
+
+Filtering the **Media** tab by a creator gives a tile grid of every saved media item:
+
+![Media bookmarks tile grid for one creator](../example_screenshots/bookmarks-media.png)
 
 ## 7. How sync works
 
