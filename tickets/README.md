@@ -1,6 +1,6 @@
 # Monoke tickets
 
-63 tickets across 11 epics, targeting **cum.st** (OnlyHaven). Every ticket is a self-contained
+65 tickets across 11 epics, targeting **cum.st** (OnlyHaven). Every ticket is a self-contained
 markdown file with acceptance criteria, so it can be worked, reviewed, and closed independently.
 
 Plan: [`../PLAN.md`](../PLAN.md)
@@ -73,6 +73,7 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T11.7 | [Loading indicator for slow viewer media](T11.7-viewer-loading-indicator.md) | Viewer | S | T11.5 | done |
 | T11.8 | [Remove the duplicate Gallery button](T11.8-remove-duplicate-gallery-button.md) | UI | S | T4.3 | done |
 | T11.9 | [Media bookmark in the viewer top bar, no hint overlay](T11.9-viewer-media-bookmark-and-no-hint.md) | Viewer | M | T11.3, T11.5 | todo |
+| T11.10 | [Bookmark viewer navigates bookmarks, not post media](T11.10-bookmark-viewer-navigates-bookmarks.md) | Viewer | M | T11.3, T11.9 | todo |
 
 ## Build order
 
@@ -114,6 +115,7 @@ T4.3 → T11.8 (remove the duplicate Gallery button)
 T11.1 + T9.4 → T11.3 (media bookmarks open the merged viewer)
 T11.1 + T8.7 + T8.8 → T11.4 (decode-before-paint, no forward black flash)
 T11.3 + T11.5 → T11.9 (media bookmark in the viewer top bar, no hint)
+T11.3 + T11.9 → T11.10 (bookmark viewer plays bookmarks, not post media)
 T7.0 audit first
 T5.3 last
 ```
