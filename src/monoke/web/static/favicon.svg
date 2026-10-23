@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Monoke">
-  <rect width="64" height="64" rx="14" fill="#151a21"/>
-  <rect x="3" y="3" width="58" height="58" rx="12" fill="none" stroke="#7f9cff" stroke-width="3"/>
-  <path d="M16 46V18h6l10 15 10-15h6v28h-6V29L32 44 22 29v17z" fill="#e8ecf2"/>
-  <circle cx="52" cy="14" r="5" fill="#7f9cff"/>
+  <rect width="64" height="64" rx="14" fill="#1a1b26"/>
+  <rect x="3" y="3" width="58" height="58" rx="12" fill="none" stroke="#7aa2f7" stroke-width="2"/>
+  <path d="M16 46V18h6l10 15 10-15h6v28h-6V29L32 44 22 29v17z" fill="#c0caf5"/>
+  <circle cx="52" cy="14" r="4" fill="#c8ff3c"/>
 </svg>

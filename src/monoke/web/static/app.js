@@ -54,7 +54,9 @@
   }
 
   function applyTheme(theme, persist) {
-    var next = theme === "light" ? "light" : "dark";
+    // The Monoke palette is dark-only. Keep the theme key for older saved
+    // sessions, but never paint a second palette (style guide §2).
+    var next = "dark";
     root.setAttribute("data-theme", next);
     if (persist) {
       write(THEME_KEY, next);
@@ -971,6 +973,17 @@
     }
 
     document.addEventListener("click", function (event) {
+      var sidebarButton = event.target.closest("[data-sidebar-toggle]");
+      if (sidebarButton) {
+        var open = document.body.classList.toggle("sidebar-open");
+        sidebarButton.setAttribute("aria-expanded", open ? "true" : "false");
+        sidebarButton.setAttribute(
+          "aria-label",
+          open ? "Close navigation" : "Open navigation"
+        );
+        return;
+      }
+
       var themeButton = event.target.closest("[data-theme-toggle]");
       if (themeButton) {
         var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
@@ -1137,6 +1150,26 @@
 
   document.addEventListener("htmx:responseError", function () {
     showFlash("The request failed. Check the server log and try again.", "error");
+  });
+
+  // The mobile sidebar closes on Escape and when the viewport grows past the
+  // drawer breakpoint. No document scans, just two direct listeners.
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape" || !document.body.classList.contains("sidebar-open")) {
+      return;
+    }
+    document.body.classList.remove("sidebar-open");
+    var button = document.querySelector("[data-sidebar-toggle]");
+    if (button) {
+      button.setAttribute("aria-expanded", "false");
+      button.setAttribute("aria-label", "Open navigation");
+    }
+  });
+
+  window.addEventListener("resize", function () {
+    if (window.innerWidth > 900 && document.body.classList.contains("sidebar-open")) {
+      document.body.classList.remove("sidebar-open");
+    }
   });
 
   window.Monoke = {

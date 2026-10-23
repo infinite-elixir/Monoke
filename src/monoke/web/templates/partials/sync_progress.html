@@ -1,3 +1,4 @@
+{% import "_macros.html" as m %}
 {% set seen = active_run.posts_seen if active_run else 0 %}
 {% set done = active_run.posts_done if active_run else 0 %}
 {% set percent = ((done / seen) * 100) if seen else 0 %}
@@ -11,9 +12,12 @@
          aria-label="Sync progress"
          {% if not active_run %}hidden{% endif %}>
   <div class="sync-head">
-    <span class="sync-phase" data-sync-phase>
-      {% if active_run %}Syncing {{ creator.display_name or creator.name or creator.service_id }}…{% else %}Idle{% endif %}
-    </span>
+    <div class="sync-phase-wrap">
+      {% if active_run %}<span class="status-pill">Active</span>{% endif %}
+      <span class="sync-phase" data-sync-phase>
+        {% if active_run %}Syncing {{ creator.display_name or creator.name or creator.service_id }}…{% else %}Idle{% endif %}
+      </span>
+    </div>
     <span class="sync-elapsed" data-sync-elapsed>0.0 s</span>
   </div>
 
@@ -27,6 +31,8 @@
     <span class="muted">·</span>
     <span data-sync-links>{{ active_run.links_found if active_run else 0 }} links</span>
   </p>
+
+  {{ m.tick_rail(24) }}
 
   <div class="sync-actions">
     <button class="button button-small button-danger" type="button" data-sync-cancel>Cancel</button>

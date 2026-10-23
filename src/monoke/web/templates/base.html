@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark light">
+  <meta name="color-scheme" content="dark">
   <title>{% block title %}Monoke{% endblock %}</title>
   <link rel="stylesheet" href="{{ asset('style.css') }}">
   <link rel="icon" href="/favicon.ico" sizes="any">
@@ -11,13 +11,7 @@
   <script>
     (function () {
       var root = document.documentElement;
-      try {
-        var t = localStorage.getItem("monoke-theme");
-        if (!t) {
-          t = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-        }
-        root.setAttribute("data-theme", t === "light" ? "light" : "dark");
-      } catch (e) {}
+      root.setAttribute("data-theme", "dark");
       try {
         var n = localStorage.getItem("monoke-nsfw");
         if (n !== null) {
@@ -32,9 +26,11 @@
 <body{% block body_attrs %}{% endblock %}>
   <a class="skip-link" href="#content">Skip to content</a>
 
-  <header class="site-header">
-    <div class="header-inner">
-      <a class="brand" href="/" aria-label="Monoke home">Monoke</a>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <a class="brand" href="/" aria-label="Monoke home">Monoke</a>
+      </div>
 
       <nav class="site-nav" aria-label="Primary">
         <a href="/"{% if active_page == "creators" %} aria-current="page"{% endif %}>Creators</a>
@@ -42,30 +38,49 @@
         <a href="/bookmarks"{% if active_page == "bookmarks" %} aria-current="page"{% endif %}>Bookmarks</a>
       </nav>
 
-      <div class="header-actions">
-        <button class="button button-quiet" type="button" data-theme-toggle aria-pressed="false">
-          Theme
-        </button>
-        <button class="button button-quiet" type="button" data-nsfw-toggle aria-pressed="true">
-          Blur: on
-        </button>
+      <div class="sidebar-footer">
+        <p class="micro">Monoke / Local-only</p>
+        <p class="sidebar-status"><span class="status-dot" aria-hidden="true"></span> Service local</p>
+        <p>Last sync <time datetime="{{ last_sync or '' }}">{{ last_sync or "never" }}</time></p>
+        <p class="sidebar-data">Data <code>{{ data_dir }}</code></p>
+        <p class="sidebar-version">v{{ app_version }}</p>
       </div>
-    </div>
-  </header>
+    </aside>
 
-  <div id="flash-region" class="flash-region" aria-live="polite">
-    {% include "partials/flash.html" %}
+    <div class="app-main">
+      <header class="topbar">
+        <button class="sidebar-toggle" type="button" data-sidebar-toggle
+                aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">
+          <span aria-hidden="true">≡</span>
+        </button>
+        <div class="topbar-context">
+          {% if active_page == "links" %}
+            <strong>Links</strong>
+          {% elif active_page == "bookmarks" %}
+            <strong>Bookmarks</strong>
+          {% else %}
+            <strong>Creators</strong>
+          {% endif %}
+          <span aria-hidden="true">//</span>
+          <span>local archive</span>
+        </div>
+        <div class="header-actions">
+          <button class="button button-quiet button-small" type="button" data-nsfw-toggle aria-pressed="true">
+            Blur: on
+          </button>
+        </div>
+      </header>
+
+      <div id="flash-region" class="flash-region" aria-live="polite">
+        {% include "partials/flash.html" %}
+      </div>
+
+      <main id="content" class="page">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
   </div>
 
-  <main id="content" class="page">
-    {% block content %}{% endblock %}
-  </main>
-
-  <footer class="site-footer">
-    <span>Data <code>{{ data_dir }}</code></span>
-    <span>Last sync <time datetime="{{ last_sync or '' }}">{{ last_sync or "never" }}</time></span>
-    <span class="footer-version">v{{ app_version }}</span>
-  </footer>
   <details id="monoke-debug" class="debug-panel"{% if debug_mode %} open{% endif %} hidden>
     <summary>Debug <span id="monoke-debug-count" class="debug-count">0</span></summary>
     <div class="debug-actions">

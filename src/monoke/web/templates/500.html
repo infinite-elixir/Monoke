@@ -4,9 +4,10 @@
 
 {% block content %}
   <section class="state-page" aria-labelledby="server-error-title">
-    <p class="status-code">500</p>
+    <p class="status-code" aria-hidden="true">500</p>
+    <p class="micro">ERR 500 // SERVER</p>
     <h1 id="server-error-title">Something went wrong</h1>
-    <p>Monoke hit an unexpected error. The details are in the server log.</p>
+    <p class="lede">Monoke hit an unexpected error. The details are in the server log.</p>
     <a class="button button-primary" href="/">Back to creators</a>
   </section>
 {% endblock %}

@@ -140,7 +140,7 @@
               <div class="attachment-body">
                 <h3 class="attachment-name">{{ file.filename }}</h3>
                 <p class="attachment-meta">
-                  <span class="kind-badge">{{ file.kind }}</span>
+                  <span class="kind-badge kind-{{ file.kind }}">{{ file.kind }}</span>
                   {% if file.mime_type %}<span>{{ file.mime_type }}</span>{% endif %}
                   {% if file.bytes %}<span title="{{ file.bytes }} bytes">{{ file.bytes|human_bytes }}</span>{% endif %}
                   {% if dims %}<span>{{ dims }}</span>{% endif %}
@@ -150,7 +150,7 @@
                 <div class="attachment-actions">
                   <a class="button button-small" href="{{ file.url }}" target="_blank" rel="noopener noreferrer nofollow">Open</a>
                   <button class="button button-small" type="button" data-copy="{{ file.url }}">Copy link</button>
-                  <button class="button button-small button-primary" type="button" data-load-media>Load</button>
+                  <button class="button button-small" type="button" data-load-media>Load</button>
                   {% if file.kind in ("image", "gif", "video") %}
                     {{ bookmark_button(
                       "/c/" ~ creator.id ~ "/media/" ~ file.sha256 ~ "/bookmark",

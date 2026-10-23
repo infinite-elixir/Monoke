@@ -38,6 +38,10 @@
   </tr>
 {%- endmacro %}
 
+{% macro tick_rail(count=16) -%}
+  <div class="tick-rail" aria-hidden="true">{% for _ in range(count) %}<i></i>{% endfor %}</div>
+{%- endmacro %}
+
 {% macro paginator(page, pages, base_url, label="Pagination") -%}
   {% if pages and pages > 1 %}
     {% set sep = "&" if "?" in base_url else "?" %}

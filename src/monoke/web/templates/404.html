@@ -4,9 +4,11 @@
 
 {% block content %}
   <section class="state-page" aria-labelledby="not-found-title">
-    <p class="status-code">404</p>
+    <p class="status-code" aria-hidden="true">404</p>
+    <hr class="volt-rule">
+    <p class="micro">ERR 404 // NOT FOUND</p>
     <h1 id="not-found-title">Page not found</h1>
-    <p>The page you asked for is not in this archive.</p>
+    <p class="lede">The page you asked for is not in this archive.</p>
     <a class="button button-primary" href="/">Back to creators</a>
   </section>
 {% endblock %}
