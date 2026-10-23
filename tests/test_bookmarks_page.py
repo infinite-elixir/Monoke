@@ -105,7 +105,8 @@ def test_three_views_and_unknown_fallback(client, conn):
     assert "bookmark-post-list" in posts_view
 
     media_view = client.get("/bookmarks?view=media").text
-    assert "bookmark-media-grid" in media_view
+    assert "bookmark-media-row" in media_view
+    assert "bookmark-media-grid" not in media_view
     assert "bookmark-post-list" not in media_view
     assert "00000000.jpg" in media_view
 

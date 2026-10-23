@@ -191,7 +191,7 @@ def test_overlay_is_present_on_a_paginated_media_view(client, conn):
     assert body.count('id="gallery-lightbox"') == 1
 
 
-def test_opening_a_bookmark_targets_its_sha_not_the_posts_first_item(client, conn):
+def test_opening_a_bookmark_targets_its_sha_in_the_bookmarks_playlist(client, conn):
     creator_id = make_creator(conn)
     post_id = add_post(conn, creator_id, 1, title="Saved post")
     add_file(conn, post_id, sha(11), position=0)
@@ -208,14 +208,120 @@ def test_opening_a_bookmark_targets_its_sha_not_the_posts_first_item(client, con
         bookmark_id,
     )
     assert f'data-sha256="{sha(13)}"' in tag
-    assert f'data-sha256="{sha(11)}"' not in tag
+    assert 'data-viewer-context="bookmarks"' in tag
+
+    # T11.10: bookmark entry points load the filtered library, not the post's
+    # first item, and preserve the clicked sha as the starting index.
+    playlist = client.get(
+        "/bookmarks/viewer/data",
+        params={"view": "media", "creator": creator_id, "sha": sha(13)},
+    ).json()
+    assert playlist["context"] == "bookmarks"
+    assert playlist["view"] == "media"
+    assert playlist["creator_id"] == creator_id
+    assert [item["sha256"] for item in playlist["media"]] == [sha(13)]
+    assert playlist["index"] == 0
+    assert playlist["total"] == 1
 
     source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
     hydrate = source.split("function hydrate(", 1)[1].split("function jump(", 1)[0]
-    assert 'tile.hasAttribute("data-lightbox-open")' in hydrate
+    assert 'tile.getAttribute("data-viewer-context") === "bookmarks"' in hydrate
+    assert "fetchJson(bookmarksDataUrl(tile), signal)" in hydrate
+    assert "fetchPayload(serviceId, signal)" in hydrate
     assert "? -1" in hydrate
     assert "resolveMediaIndex(next.media, sha, fallback)" in source
-    assert "currentIndex = -1;" in source
+
+
+def test_bookmarks_viewer_data_is_the_whole_library_across_pages(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 1, title="Many")
+    shas = [sha(number) for number in range(61)]
+    for number, media_sha in enumerate(shas):
+        add_file(conn, post_id, media_sha, position=number)
+        db.toggle_media_bookmark(conn, creator_id, media_sha)
+
+    payload = client.get(
+        "/bookmarks/viewer/data",
+        params={"view": "media", "creator": creator_id},
+    ).json()
+
+    assert payload["context"] == "bookmarks"
+    assert payload["view"] == "media"
+    assert payload["creator_id"] == creator_id
+    assert payload["total"] == 61
+    assert [item["index"] for item in payload["media"]] == list(range(61))
+    assert {item["sha256"] for item in payload["media"]} == set(shas)
+    assert all(item["bookmarked"] for item in payload["media"])
+    assert all(item["creator_id"] == creator_id for item in payload["media"])
+
+    # The page-2 tiles point at the same playlist: page boundaries no longer
+    # cut navigation short.
+    body = client.get(
+        f"/bookmarks?view=media&creator={creator_id}&page=2"
+    ).text
+    assert "page 2 of 2" in body
+    assert body.count('data-viewer-context="bookmarks"') >= 1
+
+
+def test_bookmarks_viewer_data_scopes_creator_and_reports_errors(client, conn):
+    first = make_creator(conn, service_id="274608", name="First")
+    second = make_creator(conn, service_id="274609", name="Second")
+    first_post = add_post(conn, first, 1)
+    second_post = add_post(conn, second, 1, service_id="900001")
+    add_file(conn, first_post, sha(1))
+    add_file(conn, second_post, sha(2))
+    db.toggle_media_bookmark(conn, first, sha(1))
+    db.toggle_media_bookmark(conn, second, sha(2))
+
+    scoped = client.get(
+        "/bookmarks/viewer/data",
+        params={"view": "media", "creator": first},
+    ).json()
+    assert [item["sha256"] for item in scoped["media"]] == [sha(1)]
+    assert scoped["index"] == -1
+
+    both = client.get("/bookmarks/viewer/data", params={"view": "media"}).json()
+    assert {item["sha256"] for item in both["media"]} == {sha(1), sha(2)}
+
+    unknown = client.get(
+        "/bookmarks/viewer/data", params={"view": "media", "creator": 999}
+    )
+    assert unknown.status_code == 404
+    assert unknown.json() == {"error": "unknown creator"}
+
+    conn.execute("DELETE FROM media_bookmarks WHERE creator_id = ?", (second,))
+    conn.commit()
+    empty = client.get(
+        "/bookmarks/viewer/data", params={"view": "media", "creator": second}
+    )
+    assert empty.status_code == 404
+    assert empty.json() == {"error": "no media bookmarks"}
+
+
+def test_bookmarks_playlist_disables_vertical_navigation_and_caches_nothing():
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+
+    apply_payload = source.split("function applyPayload(", 1)[1].split(
+        "function viewerDataUrl(", 1
+    )[0]
+    assert "if (!bookmarkContext()) {" in apply_payload
+    assert "rememberPayload(next);" in apply_payload
+
+    go = source.split("function go(", 1)[1].split("function openOverlay(", 1)[0]
+    assert "if (bookmarkContext()) {" in go
+    assert 'if (action === "prev-post")' in go
+    assert 'if (action === "next-post")' in go
+
+    counter = source.split("function payloadCounter(", 1)[1].split(
+        "function renderPayload(", 1
+    )[0]
+    assert 'currentIndex + 1 + " of " + payload.media.length + " bookmarks"' in counter
+
+    touch = source.split("function onTouchEnd(", 1)[1].split(
+        "function afterTouch(", 1
+    )[0]
+    assert "go(dy < 0 ? \"prev-post\" : \"next-post\")" in touch
+    assert "if (bookmarkContext()) {" in go
 
 
 def test_prev_next_walks_the_whole_post_and_up_down_crosses_posts(client, conn):
@@ -340,9 +446,17 @@ def test_unbookmarking_from_the_overlay_updates_the_library_on_close(client, con
     toggle = source.split("function toggleBookmark(", 1)[1].split(
         "function onKeydown(", 1
     )[0]
-    assert "libraryPostsRemoved.add" in toggle
     assert "libraryMediaRemoved.add" in toggle
+    assert "removeBookmarkFromPlaylist(item.sha256)" in toggle
+    # T11.10: removing the current bookmark never closes the overlay; the
+    # medium stays visible until the next navigation.
     assert "closeOverlay()" not in toggle
+
+    splice = source.split("function removeBookmarkFromPlaylist(", 1)[1].split(
+        "function toggleBookmark(", 1
+    )[0]
+    assert "payload.media.splice(index, 1)" in splice
+    assert "payload.total = payload.media.length" in splice
 
     sync = source.split("function syncBookmarkLibrary(", 1)[1].split(
         "function openOverlay(", 1

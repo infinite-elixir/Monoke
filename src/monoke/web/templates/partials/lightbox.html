@@ -3,21 +3,29 @@
    place; expanding turns the same DOM into the full-viewport viewer.
    T11.2 adds the single sticky bottom control bar and the hide/show handle.
    T11.5 moves the post title to a top caption and puts the secondary post
-   actions behind a three-dot disclosure in the bar. #}
-{% from "partials/bookmark_button.html" import bookmark_button %}
-{% set bookmark_post = groups[0].service_id if groups is defined and groups else '' %}
+   actions behind a three-dot disclosure in the bar.
+   T11.9 moves the bookmark control to the top-right and makes it bookmark the
+   visible medium; the viewer no longer bookmarks posts. #}
 {# The gallery knows its creator; the bookmarks library mixes creators and
    puts the id on the opened tile instead, so the root stays empty there. #}
 {% set overlay_creator = creator.id if creator is defined else '' %}
-{# Each host page sets this: the gallery returns to the filtered gallery,
-   the bookmarks library preserves its view/creator/page query string. #}
-{% if bookmark_next is not defined %}{% set bookmark_next = "/" %}{% endif %}
 <div class="lightbox" id="gallery-lightbox" role="dialog"
      aria-modal="true" aria-label="Media viewer" tabindex="-1"
      data-lightbox-root data-state="closed"
      data-creator-id="{{ overlay_creator }}" hidden>
   <button type="button" class="lightbox-close" data-lightbox-close
           aria-label="Close viewer">×</button>
+  {# T11.9: bookmark the visible medium, immediately left of close. Icon-only
+     with a kind-specific label; lightbox.js syncs the pressed state. #}
+  <button type="button"
+          class="lightbox-icon lightbox-media-bookmark"
+          data-lightbox-media-bookmark
+          aria-pressed="false" aria-label="Bookmark media" title="Bookmark"
+          disabled>
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M6.5 3.75h11a1.75 1.75 0 0 1 1.75 1.75v15.75L12 17l-7.25 4.25V5.5A1.75 1.75 0 0 1 6.5 3.75Z"></path>
+    </svg>
+  </button>
   {# Top caption (T11.5): muted, one line, hidden alongside the bar. The
      announcer and the media alt already carry the title, so it is visual
      chrome rather than a second accessible copy. #}
@@ -46,28 +54,6 @@
          aria-live="polite" aria-atomic="true"></p>
       <p class="viewer-toast" data-lightbox-toast aria-hidden="true" hidden></p>
       <p class="viewer-flash" data-lightbox-flash role="alert" hidden></p>
-
-      <div class="viewer-hint" data-lightbox-hint role="status">
-        <div class="viewer-hint-grid">
-          <p class="viewer-hint-item">
-            <span class="viewer-hint-key" aria-hidden="true">↑</span>
-            <span class="viewer-hint-label">Newer post</span>
-          </p>
-          <p class="viewer-hint-item">
-            <span class="viewer-hint-key" aria-hidden="true">↓</span>
-            <span class="viewer-hint-label">Older post</span>
-          </p>
-          <p class="viewer-hint-item">
-            <span class="viewer-hint-key" aria-hidden="true">←</span>
-            <span class="viewer-hint-label">Previous image</span>
-          </p>
-          <p class="viewer-hint-item">
-            <span class="viewer-hint-key" aria-hidden="true">→</span>
-            <span class="viewer-hint-label">Next image</span>
-          </p>
-        </div>
-        <p class="viewer-hint-note">Esc to close · F for fullscreen · first move hides this</p>
-      </div>
 
       <button type="button" class="viewer-zone viewer-zone-prev-image"
               data-viewer-action="prev-image" aria-label="Previous media"></button>
@@ -112,17 +98,6 @@
             <a class="lightbox-menu-item" data-lightbox-post href="#">Go to post</a>
             <a class="lightbox-menu-item" data-lightbox-original href="#"
                target="_blank" rel="noopener noreferrer">Open original</a>
-            <span class="lightbox-menu-item lightbox-bookmark">
-              {{ bookmark_button(
-                "/c/" ~ overlay_creator ~ "/p/" ~ bookmark_post ~ "/bookmark",
-                False,
-                bookmark_next,
-                "post",
-                "this post",
-                compact=True,
-                extra_class="lightbox-bookmark-button"
-              ) }}
-            </span>
           </div>
         </div>
         <button type="button" class="lightbox-icon lightbox-icon-control"

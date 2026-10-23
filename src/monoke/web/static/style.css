@@ -3015,8 +3015,7 @@ body.lightbox-open {
   height: min(calc(100vh - 10rem), 100%);
 }
 
-.lightbox.is-compact .viewer-zone,
-.lightbox.is-compact .viewer-hint {
+.lightbox.is-compact .viewer-zone {
   display: none;
 }
 
@@ -3237,34 +3236,6 @@ a.lightbox-menu-item {
   outline-offset: -2px;
 }
 
-.lightbox-menu .lightbox-bookmark {
-  display: block;
-  padding: 0;
-}
-
-.lightbox-menu .bookmark-form {
-  display: block;
-  width: 100%;
-}
-
-.lightbox-menu .bookmark-button {
-  width: 100%;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--radius-small);
-  background: transparent;
-  color: #a8bdff;
-}
-
-.lightbox-menu .bookmark-button:hover {
-  background: rgb(255 255 255 / 10%);
-}
-
-.lightbox-menu .bookmark-button:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: -2px;
-}
-
 .lightbox-controls-handle {
   position: absolute;
   bottom: max(0.5rem, env(safe-area-inset-bottom));
@@ -3315,7 +3286,7 @@ a.lightbox-menu-item {
   .lightbox-control-button,
   .lightbox-icon-control,
   .lightbox-menu-item,
-  .lightbox-menu .bookmark-button,
+  .lightbox-media-bookmark,
   .lightbox-controls-handle {
     min-width: 44px;
     min-height: 44px;
@@ -3432,8 +3403,27 @@ a.lightbox-menu-item {
   right: max(0.75rem, env(safe-area-inset-right));
 }
 
+/* T11.9: media bookmark beside close, always visible while the overlay is
+   open (unlike the hideable bottom bar). */
+.lightbox-media-bookmark {
+  position: absolute;
+  top: max(0.75rem, env(safe-area-inset-top));
+  right: calc(max(0.75rem, env(safe-area-inset-right)) + 3.25rem);
+  z-index: 5;
+}
+
+.lightbox-media-bookmark:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.lightbox-media-bookmark[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+
 .lightbox-nav:focus-visible,
-.lightbox-close:focus-visible {
+.lightbox-close:focus-visible,
+.lightbox-media-bookmark:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
@@ -3471,86 +3461,6 @@ a.lightbox-menu-item {
   border: 0;
   white-space: nowrap;
   clip-path: inset(50%);
-}
-
-.viewer-hint {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 4;
-  display: flex;
-  flex-direction: column;
-  gap: var(--step-3);
-  width: min(90vw, 30rem);
-  padding: 18px 22px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-panel);
-  background: rgb(12 14 20 / 82%);
-  color: var(--text-primary);
-  font-size: 12px;
-  line-height: 18px;
-  text-align: center;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  transition: opacity 140ms var(--ease);
-}
-
-.viewer-hint-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 16px;
-}
-
-.viewer-hint-item {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 6px;
-  margin: 0;
-}
-
-.viewer-hint-key {
-  min-width: 1.4em;
-  color: var(--accent);
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.viewer-hint-label {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.viewer-hint-note {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.viewer-hint.is-dismissed {
-  opacity: 0;
-}
-
-.viewer-hint[hidden] {
-  display: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .viewer-hint {
-    transition: none;
-  }
-}
-
-@media (max-width: 30rem) {
-  .viewer-hint-key {
-    font-size: 16px;
-  }
-
-  .viewer-hint-label {
-    font-size: 12px;
-  }
 }
 
 .viewer-zone {
@@ -3795,75 +3705,10 @@ a.lightbox-menu-item {
   position: relative;
 }
 
-/* Gallery tile action menu (T4.8): a bookmark-only disclosure. */
-.gallery-menu {
-  position: absolute;
-  top: 0.4rem;
-  right: 0.4rem;
-  z-index: 3;
-}
-
-.gallery-menu-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid rgb(255 255 255 / 26%);
-  border-radius: 6px;
-  background: rgb(8 12 18 / 78%);
-  color: #fff;
-  font-size: 1.1rem;
-  line-height: 1;
-  cursor: pointer;
-  list-style: none;
-}
-
-.gallery-menu-trigger::-webkit-details-marker {
-  display: none;
-}
-
-.gallery-menu-trigger:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.gallery-menu[open] .gallery-menu-trigger {
-  background: rgb(255 255 255 / 88%);
-  color: #10151c;
-}
-
-.gallery-menu-panel {
-  position: absolute;
-  top: calc(100% + 0.3rem);
-  right: 0;
-  z-index: 4;
-  min-width: 9rem;
-  padding: 0.35rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-small);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow);
-}
-
-.gallery-menu-panel .gallery-bookmark {
-  position: static;
-}
-
-.gallery-menu-panel .bookmark-button {
-  width: 100%;
-  justify-content: center;
-}
-
+/* Gallery tile bookmark (T11.9): the old three-dot disclosure is now one
+   direct media bookmark control in the same top-right position. */
 .gallery-bookmark {
   z-index: 2;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .gallery-menu-trigger,
-  .gallery-menu-panel {
-    transition: none;
-  }
 }
 
 .gallery-bookmark .bookmark-button {
@@ -3957,14 +3802,67 @@ a.lightbox-menu-item {
   margin-top: 0.75rem;
 }
 
-.bookmark-preview.bookmark-post-list.bookmark-media-grid {
+/* T9.5: the overview Media tab is one non-wrapping strip per creator. Never
+   auto-fill/auto-fit here: that is what re-introduces the multi-row overview. */
+.bookmark-media-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: 170px;
+  grid-template-rows: auto;
   gap: 0.9rem;
+  margin-top: 0.75rem;
+  padding-bottom: 0.4rem;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
 }
 
-.bookmark-preview.bookmark-post-list.bookmark-media-grid .bookmark-card {
-  grid-column: 1 / -1;
+.bookmark-media-row > * {
+  min-width: 0;
+}
+
+.bookmark-media-row .bookmark-media-tile {
+  min-width: 0;
+}
+
+.bookmark-media-row .gallery-meta {
+  max-width: 100%;
+}
+
+.bookmark-media-view-all {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 140px;
+  padding: 0.75rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-small);
+  background: var(--bg-soft);
+  color: var(--muted);
+  text-align: center;
+  text-decoration: none;
+}
+
+.bookmark-media-view-all:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.bookmark-media-view-all-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.bookmark-media-view-all-count {
+  font-size: 0.78rem;
+}
+
+@media (max-width: 640px) {
+  .bookmark-media-row {
+    grid-auto-columns: 140px;
+  }
 }
 
 .bookmark-section {

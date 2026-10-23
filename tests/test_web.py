@@ -159,8 +159,8 @@ def test_stylesheet_has_a_zone_reset_rule():
     from monoke.web.templating import STATIC_DIR
 
     css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
-    assert ".viewer-zone {" in css
-    zone_rule = css.split(".viewer-zone {", 1)[1].split("}", 1)[0]
+    assert "\n.viewer-zone {" in css
+    zone_rule = css.split("\n.viewer-zone {", 1)[1].split("}", 1)[0]
     for declaration in (
         "appearance: none",
         "-webkit-appearance: none",

@@ -11,6 +11,7 @@ from monoke import db
 from monoke.config import get_settings
 from monoke.web.app import create_app
 from monoke.web.filters import BOOKMARKS_PER_CREATOR_PREVIEW, PER_PAGE
+from monoke.web.templating import STATIC_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -135,10 +136,76 @@ def test_preview_caps_at_six_and_links_to_the_full_list(client, conn):
     body = client.get("/bookmarks?view=media").text
 
     assert body.count("bookmark-media-tile") == BOOKMARKS_PER_CREATOR_PREVIEW
-    assert "View all 7 bookmarks" in body
+    assert "bookmark-media-row" in body
+    # T9.5: the full-list link is a trailing tile-sized control, not a heading
+    # button, so its text is split across two lines.
+    assert '<span class="bookmark-media-view-all-label">View all</span>' in body
+    assert '<span class="bookmark-media-view-all-count">7 bookmarks</span>' in body
     assert (
         f'href="/bookmarks?view=media&amp;creator={creator_id}"' in body
     )
+
+
+def test_media_overview_is_one_non_wrapping_row_with_a_trailing_view_all(client, conn):
+    first = make_creator(conn, "1", "Alpha")
+    second = make_creator(conn, "2", "Bravo")
+    for creator_id, count in ((first, 7), (second, 2)):
+        for number in range(count):
+            add_file(
+                conn,
+                add_post(conn, creator_id, number),
+                sha(creator_id * 10 + number),
+            )
+            db.toggle_media_bookmark(conn, creator_id, sha(creator_id * 10 + number))
+
+    body = client.get("/bookmarks?view=media").text
+    sections = creator_sections(body)
+    assert len(sections) == 2
+
+    for section, expected in zip(sections, (6, 2)):
+        heading, row = section.split('class="bookmark-preview bookmark-media-row"', 1)
+        # The Media tab no longer duplicates View all in the section heading.
+        assert "View all" not in heading
+        assert "bookmark-media-grid" not in heading
+        assert row.count("bookmark-media-tile") == expected
+        assert row.index("bookmark-media-tile") < row.index("bookmark-media-view-all")
+        assert row.rstrip().endswith("</div>")
+
+
+def test_media_row_styles_cannot_wrap_or_grow_to_full_width():
+    css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
+
+    row = css.split("\n.bookmark-media-row {", 1)[1].split("}", 1)[0]
+    assert "display: grid" in row
+    assert "grid-auto-flow: column" in row
+    assert "grid-auto-columns: 170px" in row
+    assert "grid-template-rows: auto" in row
+    assert "overflow-x: auto" in row
+    assert "auto-fill" not in row
+    assert "auto-fit" not in row
+    assert "repeat(" not in row
+
+    view_all = css.split("\n.bookmark-media-view-all {", 1)[1].split("}", 1)[0]
+    assert "min-height: 140px" in view_all
+    assert "flex-direction: column" in view_all
+
+    narrow = css.split(
+        "@media (max-width: 640px) {\n  .bookmark-media-row {", 1
+    )[1].split("}", 1)[0]
+    assert "grid-auto-columns: 140px" in narrow
+    assert ".bookmark-preview.bookmark-post-list.bookmark-media-grid" not in css
+
+
+def test_creator_filtered_media_keeps_the_wrapping_gallery_grid(client, conn):
+    creator_id = make_creator(conn)
+    for number in range(3):
+        add_file(conn, add_post(conn, creator_id, number), sha(number))
+        db.toggle_media_bookmark(conn, creator_id, sha(number))
+
+    body = client.get(f"/bookmarks?view=media&creator={creator_id}").text
+
+    assert 'class="gallery-grid bookmark-media-grid"' in body
+    assert "bookmark-media-row" not in body
 
 
 def test_views_preview_only_their_own_kind(client, conn):

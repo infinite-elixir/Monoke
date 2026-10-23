@@ -152,9 +152,12 @@ def test_gallery_renders_one_toggle_per_tile_outside_the_anchor(client, conn):
     anchors = re.findall(r'<a class="gallery-thumb".*?</a>', body, re.S)
     assert len(anchors) == 3
     assert all("<button" not in anchor for anchor in anchors)
-    assert body.count("data-bookmark-target=") == 4
+    # Three direct tile controls; the overlay no longer holds a form bookmark.
+    assert body.count("data-bookmark-target=") == 3
     assert body.count("gallery-bookmark") >= 3
+    assert "data-gallery-menu" not in body
     buttons = re.findall(r"<button[^>]*data-bookmark-button[^>]*>", body)
+    assert len(buttons) == 3
     assert sum('aria-pressed="true"' in button for button in buttons) == 1
 
 
@@ -205,6 +208,33 @@ def test_viewer_payload_marks_post_and_each_media_item(client, conn):
     assert state["media"][1]["bookmarked"] is True
 
 
+def test_viewer_media_bookmark_only_lands_in_the_media_library(client, conn):
+    creator_id = make_creator(conn)
+    post_id = add_post(conn, creator_id, 1, title="Viewer post")
+    add_file(conn, post_id, sha(1), kind="video")
+
+    response = client.post(
+        f"/c/{creator_id}/media/{sha(1)}/bookmark",
+        headers={"Accept": "application/json"},
+    )
+    assert response.json()["bookmarked"] is True
+
+    media_view = client.get("/bookmarks?view=media").text
+    posts_view = client.get("/bookmarks?view=posts").text
+    assert f'data-sha256="{sha(1)}"' in media_view
+    assert "Viewer post" not in posts_view
+    assert "data-bookmark-post-card" not in posts_view
+
+    from monoke.web.templating import STATIC_DIR
+
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    toggle = source.split("function toggleBookmark(", 1)[1].split(
+        "function onKeydown(", 1
+    )[0]
+    assert '"/media/"' in toggle
+    assert '"/p/"' not in toggle
+
+
 def test_viewer_json_toggle_round_trips_for_post_and_media(client, conn):
     creator_id = make_creator(conn)
     post_id = add_post(conn, creator_id, 1)
@@ -222,7 +252,7 @@ def test_viewer_json_toggle_round_trips_for_post_and_media(client, conn):
     assert client.post(post_url).json()["bookmarked"] is False
 
 
-def test_viewer_script_wires_b_and_shift_b_with_visible_bar_bookmark(client, conn):
+def test_viewer_script_wires_b_to_the_visible_top_media_bookmark(client, conn):
     from monoke.web.templating import STATIC_DIR
 
     creator_id = make_creator(conn)
@@ -233,14 +263,15 @@ def test_viewer_script_wires_b_and_shift_b_with_visible_bar_bookmark(client, con
     overlay = body[body.index('id="gallery-lightbox"') :]
 
     assert 'event.key === "b" || event.key === "B"' in script
-    assert 'toggleBookmark(event.key === "B" ? "post" : "media")' in script
+    assert "toggleBookmark();" in script
+    assert 'toggleBookmark(event.key === "B" ? "post" : "media")' not in script
     assert "data-lightbox-toast" in overlay
     assert 'data-lightbox-toast aria-hidden="true" hidden' in overlay
-    # T11.2 adds exactly one persistent bookmark toggle in the sticky bar; the
-    # b / Shift+B keyboard paths stay alongside it.
-    assert overlay.count("data-bookmark-button") == 1
+    # T11.9: the only viewer bookmark control is the media button beside close.
+    assert overlay.count("data-lightbox-media-bookmark") == 1
+    assert overlay.count("data-bookmark-button") == 0
     assert overlay.count("data-lightbox-controls") >= 1
-    assert 'data-bookmark-target="post"' in overlay
+    assert 'data-bookmark-target="post"' not in overlay
 
 
 # --------------------------------------------------------------------------- #

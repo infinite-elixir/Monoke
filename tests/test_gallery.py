@@ -129,20 +129,22 @@ def test_gallery_renders_every_image_with_thumbnails_only(client, conn):
     assert "3</strong> images" in body
 
 
-def test_gallery_tile_action_menu_offers_bookmark_only(client, conn):
+def test_gallery_tile_has_a_direct_bookmark_control_without_a_menu(client, conn):
     creator_id = seed(conn, 2)
 
     body = client.get(f"/c/{creator_id}/gallery").text
 
-    assert body.count("data-gallery-menu") == 2
-    assert body.count('class="gallery-menu-trigger"') == 2
-    assert body.count('class="gallery-menu-panel"') == 2
-    # Two tile menus plus the viewer's sticky bar bookmark toggle (T11.2).
-    assert body.count("data-bookmark-form") == 3
-    assert "Actions for" in body
-    # The menu is a sibling of the thumbnail anchor, so a menu click never
+    assert body.count("data-gallery-menu") == 0
+    assert "gallery-menu-trigger" not in body
+    assert "gallery-menu-panel" not in body
+    assert "Actions for" not in body
+    # One form per tile; the viewer's top media control is not a form.
+    assert body.count("data-bookmark-form") == 2
+    assert body.count("gallery-bookmark") >= 2
+    assert body.count('data-bookmark-target="image"') == 2
+    # The control is a sibling of the thumbnail anchor, so activating it never
     # reaches the lightbox item.
-    assert body.index('class="gallery-menu"') > body.index('class="gallery-thumb"')
+    assert body.index("gallery-bookmark") > body.index('class="gallery-thumb"')
     assert "Start viewer here" not in body
     assert "Open in viewer" not in body
     assert "data-viewer-open" not in body

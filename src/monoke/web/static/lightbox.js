@@ -194,7 +194,6 @@
   var toast = root.querySelector("[data-lightbox-toast]");
   var flash = root.querySelector("[data-lightbox-flash]");
   var loading = root.querySelector("[data-lightbox-loading]");
-  var hint = root.querySelector("[data-lightbox-hint]");
   var controls = root.querySelector("[data-lightbox-controls]");
   var controlsHandle = root.querySelector("[data-lightbox-controls-handle]");
   var hideButton = root.querySelector("[data-lightbox-hide]");
@@ -202,10 +201,7 @@
   var postNextButton = root.querySelector("[data-lightbox-post-next]");
   var moreButton = root.querySelector("[data-lightbox-more]");
   var menu = root.querySelector("[data-lightbox-menu]");
-  var bookmarkForm = root.querySelector("[data-lightbox-controls] [data-bookmark-form]");
-  var bookmarkButton = bookmarkForm
-    ? bookmarkForm.querySelector("[data-bookmark-button]")
-    : null;
+  var mediaBookmarkButton = root.querySelector("[data-lightbox-media-bookmark]");
   var zones = root.querySelectorAll("[data-viewer-action]");
   var creatorId = root.getAttribute("data-creator-id") || null;
   // Pages that mix creators (the bookmarks library) can put the id on the
@@ -227,6 +223,9 @@
   var payload = null;
   var currentIndex = 0;
   var currentItem = null;
+  // "post" for the gallery's post-scoped playlist, "bookmarks" when opened
+  // from the library (T11.10).
+  var entryContext = "post";
   var lastNav = 0;
   var lastWheel = 0;
   var lastTouchNav = 0;
@@ -235,7 +234,6 @@
   var hydrateController = null;
   var jumpToken = 0;
   var jumpController = null;
-  var hintDismissed = false;
   var toastTimer = null;
   var chromePinned = false;
   var chromeHidden = false;
@@ -367,14 +365,6 @@
       loadingShownAt = 0;
       loading.hidden = true;
     }, LOADING_MIN_VISIBLE - elapsed);
-  }
-
-  function prefersReducedMotion() {
-    try {
-      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    } catch (_error) {
-      return false;
-    }
   }
 
   // ------------------------------------------------------------------- //
@@ -553,47 +543,6 @@
       announcer.textContent = message;
     }
     showToast(message);
-  }
-
-  // The hint is onboarding for the full-viewport layer only: the compact
-  // lightbox already shows visible media controls. Once dismissed it stays
-  // dismissed for this page load (T8.4).
-  function dismissHint() {
-    if (!hint || hintDismissed || mode === "compact" || mode === "closed") {
-      return;
-    }
-    hintDismissed = true;
-    hint.setAttribute("aria-hidden", "true");
-    var instant = prefersReducedMotion();
-    if (instant) {
-      hint.hidden = true;
-      return;
-    }
-    hint.classList.add("is-dismissed");
-    hint.addEventListener(
-      "transitionend",
-      function (event) {
-        if (event.target === hint) {
-          hint.hidden = true;
-        }
-      },
-      { once: true }
-    );
-  }
-
-  function suppressHintForQuery() {
-    if (!hint) {
-      return;
-    }
-    var params = new URLSearchParams(window.location.search);
-    var hintFlag = (params.get("hint") || "").toLowerCase();
-    if (
-      params.get("quiet") === "1" ||
-      ["0", "false", "no", "off"].indexOf(hintFlag) !== -1
-    ) {
-      hintDismissed = true;
-      hint.hidden = true;
-    }
   }
 
   function kindLabel(kind) {
@@ -804,7 +753,7 @@
   }
 
   function prefetchNeighbourPayloads() {
-    if (!payload || !activeCreatorId || !preloadAllowed()) {
+    if (!payload || bookmarkContext() || !activeCreatorId || !preloadAllowed()) {
       return;
     }
     var ids = [payload.previous_post, payload.next_post];
@@ -1015,19 +964,23 @@
   }
 
   function mediaItemFromPayload(item) {
+    var post = payload.post || {};
     return {
       kind: item.kind,
       url: item.url,
       thumbUrl: item.thumb_url || "",
-      title:
-        (payload.post && payload.post.title) || item.filename || "Media",
-      postUrl: (payload.post && payload.post.post_url) || "#",
+      // A bookmarks playlist mixes posts, so each row carries its own post
+      // copy; the gallery payload keeps the single post at the top level.
+      title: item.post_title || post.title || item.filename || "Media",
+      postUrl: item.post_url || post.post_url || "#",
       sha256: item.sha256 || "",
       index: item.index,
       filename: item.filename || "",
+      creatorId: item.creator_id || activeCreatorId,
+      creatorName: item.creator_name || (payload.creator && payload.creator.name) || "",
       bookmarked: Boolean(item.bookmarked),
-      postServiceId: (payload.post && payload.post.service_id) || "",
-      postBookmarked: Boolean(payload.post && payload.post.bookmarked)
+      postServiceId: item.post_service_id || post.service_id || "",
+      postBookmarked: Boolean(post.bookmarked)
     };
   }
 
@@ -1047,19 +1000,26 @@
       sha256: tile.getAttribute("data-sha256") || "",
       index: Number(tile.getAttribute("data-viewer-index")) || 0,
       filename: tile.getAttribute("data-title") || "",
-      bookmarked: false,
+      creatorId: tile.getAttribute("data-creator-id") || activeCreatorId,
+      creatorName: "",
+      bookmarked: tile.getAttribute("data-bookmarked") === "true",
       postServiceId: tile.getAttribute("data-post-service-id") || "",
       postBookmarked: false
     };
   }
 
+  function bookmarkContext() {
+    return Boolean(payload && payload.context === "bookmarks");
+  }
+
   function canStep(delta) {
     if (payload && payload.media && payload.media.length) {
       if (delta < 0) {
-        return currentIndex > 0 || Boolean(payload.previous_post);
+        return currentIndex > 0 || (!bookmarkContext() && Boolean(payload.previous_post));
       }
       return (
-        currentIndex < payload.media.length - 1 || Boolean(payload.next_post)
+        currentIndex < payload.media.length - 1 ||
+        (!bookmarkContext() && Boolean(payload.next_post))
       );
     }
     if (!tileItems.length) {
@@ -1076,7 +1036,18 @@
       return;
     }
     var text;
-    if (payload && payload.media && payload.media.length) {
+    if (bookmarkContext() && payload.media && payload.media.length) {
+      text =
+        kindLabel(item.kind) +
+        " " +
+        (currentIndex + 1) +
+        " of " +
+        payload.media.length +
+        " bookmarks";
+      if (item.creatorName) {
+        text += " · " + item.creatorName;
+      }
+    } else if (payload && payload.media && payload.media.length) {
       text =
         kindLabel(item.kind) +
         " " +
@@ -1101,33 +1072,24 @@
     announcer.textContent = text;
   }
 
+  // T11.9: the top control always describes the visible medium, never its
+  // post. A known sha stays actionable even when the file is unavailable so a
+  // missing bookmark can still be removed.
   function syncBookmarkControl(item) {
-    if (!bookmarkForm || !bookmarkButton || !item) {
+    if (!mediaBookmarkButton || !item) {
       return;
     }
-    var postId = item.postServiceId || "";
-    var bookmarked = Boolean(item.postBookmarked);
-    var name = item.title || "this post";
-    bookmarkForm.setAttribute(
-      "action",
-      postId
-        ? "/c/" +
-            encodeURIComponent(activeCreatorId || "") +
-            "/p/" +
-            encodeURIComponent(postId) +
-            "/bookmark"
-        : "#"
-    );
-    var nextInput = bookmarkForm.querySelector('input[name="next"]');
-    if (nextInput) {
-      nextInput.value = window.location.pathname + window.location.search;
-    }
-    bookmarkButton.disabled = !postId || !activeCreatorId;
-    bookmarkButton.setAttribute("aria-pressed", bookmarked ? "true" : "false");
-    bookmarkButton.setAttribute("aria-label", "Bookmark post: " + name);
-    bookmarkButton.setAttribute("title", bookmarked ? "Remove bookmark" : "Bookmark");
-    bookmarkButton.setAttribute("data-bookmark-target", "post");
-    bookmarkButton.classList.toggle("is-bookmarked", bookmarked);
+    var sha = item.sha256 || "";
+    var bookmarked = Boolean(item.bookmarked);
+    var kindName = String(kindLabel(item.kind)).toLowerCase();
+    var label = bookmarked
+      ? "Remove bookmark"
+      : "Bookmark " + (kindName === "media" ? "media" : kindName);
+    mediaBookmarkButton.disabled = !sha || !activeCreatorId;
+    mediaBookmarkButton.setAttribute("aria-pressed", bookmarked ? "true" : "false");
+    mediaBookmarkButton.setAttribute("aria-label", label);
+    mediaBookmarkButton.setAttribute("title", label);
+    mediaBookmarkButton.classList.toggle("is-bookmarked", bookmarked);
   }
 
   function updateChrome(item, counterText) {
@@ -1151,11 +1113,14 @@
     if (nextButton) {
       nextButton.disabled = !canStep(1);
     }
+    var canCrossPosts = !bookmarkContext();
     if (postPrevButton) {
-      postPrevButton.disabled = !(payload && payload.previous_post);
+      postPrevButton.disabled =
+        !canCrossPosts || !(payload && payload.previous_post);
     }
     if (postNextButton) {
-      postNextButton.disabled = !(payload && payload.next_post);
+      postNextButton.disabled =
+        !canCrossPosts || !(payload && payload.next_post);
     }
     syncBookmarkControl(item);
     root.setAttribute("data-kind", item.kind || "file");
@@ -1244,6 +1209,16 @@
     );
   }
 
+  function payloadCounter() {
+    if (!payload || !payload.media) {
+      return "";
+    }
+    if (bookmarkContext()) {
+      return currentIndex + 1 + " of " + payload.media.length + " bookmarks";
+    }
+    return currentIndex + 1 + " / " + payload.media.length;
+  }
+
   function renderPayload(index) {
     if (!payload || !payload.media || !payload.media.length) {
       return;
@@ -1251,7 +1226,7 @@
     currentIndex = clamp(Number(index) || 0, payload.media.length);
     render(
       mediaItemFromPayload(payload.media[currentIndex]),
-      currentIndex + 1 + " / " + payload.media.length
+      payloadCounter()
     );
   }
 
@@ -1264,7 +1239,11 @@
       return;
     }
     payload = next;
-    rememberPayload(next);
+    // Bookmarks playlists are rebuilt from the live library on every open, so
+    // they are never cached across overlay sessions (T11.10).
+    if (!bookmarkContext()) {
+      rememberPayload(next);
+    }
     var index = resolveMediaIndex(next.media, sha, fallback);
     if (index < 0) {
       currentIndex = -1;
@@ -1296,8 +1275,8 @@
     return "/c/" + activeCreatorId + "/viewer/data?" + query;
   }
 
-  function fetchPayload(serviceId, signal) {
-    return fetch(viewerDataUrl(serviceId), {
+  function fetchJson(url, signal) {
+    return fetch(url, {
       headers: { Accept: "application/json" },
       signal: signal
     }).then(function (response) {
@@ -1308,17 +1287,38 @@
     });
   }
 
+  function fetchPayload(serviceId, signal) {
+    return fetchJson(viewerDataUrl(serviceId), signal);
+  }
+
+  // T11.10: the bookmarks playlist is the current view's ordered media set,
+  // not the underlying post. The creator scope keeps the grouped overview
+  // inside the section the tile was clicked in.
+  function bookmarksDataUrl(tile) {
+    var creator = tile.getAttribute("data-creator-id") || activeCreatorId || "";
+    var sha = tile.getAttribute("data-sha256") || "";
+    var query = "view=media&creator=" + encodeURIComponent(creator);
+    if (sha) {
+      query += "&sha=" + encodeURIComponent(sha);
+    }
+    return "/bookmarks/viewer/data?" + query;
+  }
+
   function hydrate(tile) {
     var serviceId = tile.getAttribute("data-post-service-id") || "";
     var sha = tile.getAttribute("data-sha256") || "";
-    // Bookmark entry points (T11.3) resolve by sha only: a bookmark whose
-    // attachment vanished upstream must land on the unavailable state, never
-    // on the post's first item. Gallery tiles keep the index fallback.
-    var bookmarkEntry = tile.hasAttribute("data-lightbox-open");
+    entryContext =
+      tile.getAttribute("data-viewer-context") === "bookmarks"
+        ? "bookmarks"
+        : "post";
+    // Bookmark entry points resolve by sha only: a bookmark whose attachment
+    // vanished upstream must land on the unavailable state, never on the
+    // post's first item. Gallery tiles keep the index fallback.
+    var bookmarkEntry = entryContext === "bookmarks";
     var fallback = bookmarkEntry
       ? -1
       : Number(tile.getAttribute("data-viewer-index")) || 0;
-    if (!serviceId || !activeCreatorId) {
+    if (!activeCreatorId || (!serviceId && !bookmarkEntry)) {
       return;
     }
 
@@ -1329,10 +1329,12 @@
       hydrateController = null;
     }
 
-    var cached = payloadCache.get(payloadKey(serviceId));
-    if (cached) {
-      applyPayload(cached, sha, fallback, null);
-      return;
+    if (!bookmarkEntry) {
+      var cached = payloadCache.get(payloadKey(serviceId));
+      if (cached) {
+        applyPayload(cached, sha, fallback, null);
+        return;
+      }
     }
 
     hydrateController = new AbortController();
@@ -1342,7 +1344,10 @@
     if (!currentItem || !currentItem.url) {
       beginLoading();
     }
-    fetchPayload(serviceId, signal)
+    var request = bookmarkEntry
+      ? fetchJson(bookmarksDataUrl(tile), signal)
+      : fetchPayload(serviceId, signal);
+    request
       .then(function (next) {
         if (token !== hydrateToken) {
           return;
@@ -1354,7 +1359,11 @@
           return;
         }
         root.removeAttribute("aria-busy");
-        setFlash("Could not load this post. Staying on the current media.");
+        setFlash(
+          bookmarkEntry
+            ? "Could not load these bookmarks. Staying on the current media."
+            : "Could not load this post. Staying on the current media."
+        );
       });
   }
 
@@ -1414,7 +1423,7 @@
       if (payload) {
         if (currentIndex > 0) {
           renderPayload(currentIndex - 1);
-        } else if (payload.previous_post) {
+        } else if (!bookmarkContext() && payload.previous_post) {
           // The inverse of the move that entered this post lands on its last
           // media; jump() resolves that against the target payload.
           jump(payload.previous_post, -1);
@@ -1434,7 +1443,7 @@
       if (payload) {
         if (currentIndex < payload.media.length - 1) {
           renderPayload(currentIndex + 1);
-        } else if (payload.next_post) {
+        } else if (!bookmarkContext() && payload.next_post) {
           jump(payload.next_post, 0);
         }
         return;
@@ -1443,6 +1452,11 @@
         paintTile(tileIndex + 1);
         hydrate(tileItems[tileIndex]);
       }
+      return;
+    }
+    // Vertical navigation has no meaning in the bookmarks playlist: there is
+    // no post chain to cross and it must never leave the bookmark set.
+    if (bookmarkContext()) {
       return;
     }
     if (action === "prev-post") {
@@ -1474,13 +1488,6 @@
       var label = expanded ? "Collapse viewer" : "Expand viewer";
       expandButton.setAttribute("aria-label", label);
       expandButton.setAttribute("title", label);
-    }
-    if (
-      (next === "expanded" || next === "browser") &&
-      hint &&
-      !hintDismissed
-    ) {
-      hint.hidden = false;
     }
   }
 
@@ -1667,6 +1674,10 @@
     }
 
     activeCreatorId = element.getAttribute("data-creator-id") || creatorId;
+    entryContext =
+      element.getAttribute("data-viewer-context") === "bookmarks"
+        ? "bookmarks"
+        : "post";
     payload = null;
     currentItem = null;
     currentIndex = 0;
@@ -1707,6 +1718,7 @@
     unloadMedia();
     payload = null;
     currentItem = null;
+    entryContext = "post";
     activeCreatorId = creatorId;
     viewerQuery = "";
     tileItems = [];
@@ -1728,40 +1740,61 @@
   }
 
   // ------------------------------------------------------------------- //
-  // Bookmarks (T9.2): `b` toggles media, `Shift+B` toggles the post.
+  // Bookmarks (T9.2, media-only in the viewer since T11.9): `b` toggles the
+  // visible medium. Posts are bookmarked outside the overlay.
   // ------------------------------------------------------------------- //
 
-  function toggleBookmark(kind) {
+  // T11.10: removing the current bookmark never ejects the overlay. The item
+  // leaves the in-memory playlist and counter; the medium stays on screen
+  // until the next navigation lands on a surviving neighbour.
+  function removeBookmarkFromPlaylist(sha) {
+    if (!bookmarkContext() || !payload || !payload.media) {
+      return;
+    }
+    var index = -1;
+    for (var cursor = 0; cursor < payload.media.length; cursor += 1) {
+      if (payload.media[cursor] && payload.media[cursor].sha256 === sha) {
+        index = cursor;
+        break;
+      }
+    }
+    if (index < 0) {
+      return;
+    }
+    payload.media.splice(index, 1);
+    payload.total = payload.media.length;
+    if (index < currentIndex) {
+      currentIndex -= 1;
+    } else if (index === currentIndex) {
+      currentIndex = clamp(currentIndex, payload.media.length);
+    }
+    if (currentItem) {
+      setText(counter, payloadCounter());
+      if (prevButton) {
+        prevButton.disabled = !canStep(-1);
+      }
+      if (nextButton) {
+        nextButton.disabled = !canStep(1);
+      }
+    }
+  }
+
+  function toggleBookmark() {
     if (!activeCreatorId || !currentItem) {
       return;
     }
     var item = currentItem;
-    var url;
-    var nextPath = window.location.pathname + window.location.search;
-    if (kind === "post") {
-      var postId = item.postServiceId || (payload && payload.post && payload.post.service_id);
-      if (!postId) {
-        return;
-      }
-      url =
-        "/c/" +
-        activeCreatorId +
-        "/p/" +
-        encodeURIComponent(postId) +
-        "/bookmark?format=json&next=" +
-        encodeURIComponent(nextPath);
-    } else {
-      if (!item.sha256) {
-        return;
-      }
-      url =
-        "/c/" +
-        activeCreatorId +
-        "/media/" +
-        encodeURIComponent(item.sha256) +
-        "/bookmark?format=json&next=" +
-        encodeURIComponent(nextPath);
+    if (!item.sha256) {
+      return;
     }
+    var nextPath = window.location.pathname + window.location.search;
+    var url =
+      "/c/" +
+      activeCreatorId +
+      "/media/" +
+      encodeURIComponent(item.sha256) +
+      "/bookmark?format=json&next=" +
+      encodeURIComponent(nextPath);
 
     fetch(url, {
       method: "POST",
@@ -1777,41 +1810,20 @@
       .then(function (data) {
         var bookmarked = Boolean(data && data.bookmarked);
         payloadEpoch += 1;
-        if (kind === "post") {
-          item.postBookmarked = bookmarked;
-          if (bookmarked) {
-            libraryPostsRemoved.delete(String(postId));
-          } else {
-            libraryPostsRemoved.add(String(postId));
-          }
-          if (payload && payload.post) {
-            payload.post.bookmarked = bookmarked;
-            updateCachedBookmarks(
-              "post",
-              payload.post.service_id,
-              null,
-              bookmarked
-            );
-          }
-          syncBookmarkControl(item);
-          announce(bookmarked ? "Post bookmarked" : "Bookmark removed");
-          schedulePayloadPrefetch();
-          return;
-        }
         item.bookmarked = bookmarked;
         if (bookmarked) {
           libraryMediaRemoved.delete(item.sha256);
         } else {
           libraryMediaRemoved.add(item.sha256);
         }
-        if (
-          payload &&
-          payload.media &&
-          payload.media[currentIndex]
-        ) {
+        if (payload && payload.media && payload.media[currentIndex]) {
           payload.media[currentIndex].bookmarked = bookmarked;
         }
         updateCachedBookmarks("media", null, item.sha256, bookmarked);
+        if (!bookmarked) {
+          removeBookmarkFromPlaylist(item.sha256);
+        }
+        syncBookmarkControl(item);
         announce(
           bookmarked
             ? kindLabel(item.kind) + " bookmarked"
@@ -1820,7 +1832,7 @@
         schedulePayloadPrefetch();
       })
       .catch(function () {
-        // Leave the previous state untouched; a retry is just another key.
+        // Leave the previous state untouched; a retry is just another click.
         setFlash("Could not update the bookmark.");
       });
   }
@@ -1874,14 +1886,12 @@
 
     if (event.key === "b" || event.key === "B") {
       event.preventDefault();
-      dismissHint();
-      toggleBookmark(event.key === "B" ? "post" : "media");
+      toggleBookmark();
       return;
     }
 
     if (event.key === "f" || event.key === "F") {
       event.preventDefault();
-      dismissHint();
       toggleFullscreen();
       return;
     }
@@ -1896,7 +1906,6 @@
       return;
     }
     event.preventDefault();
-    dismissHint();
     go(action2);
   }
 
@@ -1921,7 +1930,6 @@
       return;
     }
     lastWheel = now;
-    dismissHint();
     if (horizontal) {
       go(dx > 0 ? "next-image" : "prev-image");
     } else {
@@ -1960,10 +1968,10 @@
       return;
     }
     lastTouchNav = Date.now();
-    dismissHint();
     if (Math.abs(dx) > Math.abs(dy)) {
       go(dx < 0 ? "next-image" : "prev-image");
     } else {
+      // Vertical swipes are ignored in the bookmarks playlist (T11.10).
       go(dy < 0 ? "prev-post" : "next-post");
     }
   }
@@ -1981,7 +1989,6 @@
       event.stopPropagation();
       return;
     }
-    dismissHint();
   }
 
   function onZoneClick(event) {
@@ -1991,7 +1998,6 @@
     if (afterTouch()) {
       return;
     }
-    dismissHint();
     go(event.currentTarget.getAttribute("data-viewer-action"));
   }
 
@@ -2009,12 +2015,6 @@
       // Menu links may navigate; the disclosure never stays open behind them.
       if (target.closest("a")) {
         closeMenu(false);
-        return;
-      }
-      if (target.closest("[data-bookmark-button]")) {
-        event.preventDefault();
-        closeMenu(false);
-        toggleBookmark("post");
         return;
       }
     }
@@ -2038,9 +2038,9 @@
       go("next-post");
       return;
     }
-    if (target.closest("[data-bookmark-button]")) {
+    if (target.closest("[data-lightbox-media-bookmark]")) {
       event.preventDefault();
-      toggleBookmark("post");
+      toggleBookmark();
       return;
     }
     if (target.closest("[data-lightbox-close]")) {
@@ -2067,7 +2067,6 @@
     if (target.closest("[data-lightbox-fullscreen]")) {
       event.preventDefault();
       closeMenu(false);
-      dismissHint();
       toggleFullscreen();
       return;
     }
@@ -2187,7 +2186,6 @@
     zones[zoneIndex].addEventListener("click", onZoneClick);
   }
 
-  suppressHintForQuery();
   updateFullscreenControl();
   setMode("closed");
 })();

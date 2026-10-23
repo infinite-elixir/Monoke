@@ -231,57 +231,7 @@
   }
 
   // Gallery tile opens and the merged lightbox/viewer live in lightbox.js
-  // (T11.1). This file keeps the shell behaviour and the tile action menus.
-
-  // Gallery tile action menus (T4.8). A native <details> handles open/close
-  // and keyboard use; this only closes the others and supports Escape.
-  function galleryMenusClose(except) {
-    var menus = document.querySelectorAll("[data-gallery-menu][open]");
-    Array.prototype.forEach.call(menus, function (menu) {
-      if (menu !== except) {
-        menu.open = false;
-      }
-    });
-  }
-
-  document.addEventListener(
-    "toggle",
-    function (event) {
-      var menu = event.target;
-      if (
-        menu &&
-        menu.matches &&
-        menu.matches("[data-gallery-menu]") &&
-        menu.open
-      ) {
-        galleryMenusClose(menu);
-      }
-    },
-    true
-  );
-
-  document.addEventListener("keydown", function (event) {
-    if (event.key !== "Escape") {
-      return;
-    }
-    var menu = document.querySelector("[data-gallery-menu][open]");
-    if (!menu) {
-      return;
-    }
-    var summary = menu.querySelector("summary");
-    menu.open = false;
-    if (summary && summary.focus) {
-      summary.focus();
-    }
-  });
-
-  document.addEventListener("click", function (event) {
-    var target = event.target;
-    if (target && target.closest && target.closest("[data-gallery-menu]")) {
-      return;
-    }
-    galleryMenusClose(null);
-  });
+  // (T11.1). This file keeps the shell behaviour.
 
   async function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) {

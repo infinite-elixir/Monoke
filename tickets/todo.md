@@ -2,7 +2,7 @@
 
 1. In filters No apply button, apply directly
 2. Add a download button for media.
-3. (Utmost priority) add pawchie as a source.
+3. (Utmost priority) add pawchive.pw as a source — tracked in tickets T12.1–T12.11.
 
 
 # Stuff that is not implemented 

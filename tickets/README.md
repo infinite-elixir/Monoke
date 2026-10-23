@@ -1,7 +1,8 @@
 # Monoke tickets
 
-66 tickets across 11 epics, targeting **cum.st** (OnlyHaven). Every ticket is a self-contained
-markdown file with acceptance criteria, so it can be worked, reviewed, and closed independently.
+77 tickets across 12 epics, targeting **cum.st** (OnlyHaven) and **pawchive.pw**. Every ticket
+is a self-contained markdown file with acceptance criteria, so it can be worked, reviewed, and
+closed independently.
 
 Plan: [`../PLAN.md`](../PLAN.md)
 
@@ -63,7 +64,7 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T9.2 | [Bookmark controls on posts, attachments, gallery tiles and the viewer](T9.2-bookmark-controls-ui.md) | Bookmarks | M | T9.1, T4.3, T4.4, T4.7, T8.5 | done (browser pass manual) |
 | T9.3 | [Bookmarks library page and navigation](T9.3-bookmarks-library-page.md) | Bookmarks | M | T9.1, T9.2, T4.1, T4.7 | done |
 | T9.4 | [Group bookmarks by creator](T9.4-bookmarks-by-creator-and-viewer.md) | Bookmarks | M | T9.3, T4.11 | done |
-| T9.5 | [Bookmark media previews are one compact row per creator](T9.5-bookmark-media-preview-row.md) | Bookmarks | S | T9.4 | todo |
+| T9.5 | [Bookmark media previews are one compact row per creator](T9.5-bookmark-media-preview-row.md) | Bookmarks | S | T9.4 | done |
 | T10.1 | [Merge `carasoul-swiping-viewer` without the viewer rewrite](T10.1-merge-carasoul-sans-viewer.md) | Integration | L | T4.9, T4.11, T7.7, T9.3 | done |
 | T11.1 | [Merge the gallery lightbox and the fullscreen viewer](T11.1-merge-lightbox-and-viewer.md) | Viewer | L | T4.7, T8.8, T9.2 | done (mobile auto-fullscreen deferred by decision) |
 | T11.2 | [Sticky viewer controls, visible post buttons and hide control](T11.2-sticky-viewer-controls.md) | Viewer | M | T11.1 | done (browser pass manual) |
@@ -73,8 +74,19 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T11.6 | [Viewer follows the active gallery filters](T11.6-viewer-follows-gallery-filters.md) | Viewer | M | T11.5, T7.7 | done |
 | T11.7 | [Loading indicator for slow viewer media](T11.7-viewer-loading-indicator.md) | Viewer | S | T11.5 | done |
 | T11.8 | [Remove the duplicate Gallery button](T11.8-remove-duplicate-gallery-button.md) | UI | S | T4.3 | done |
-| T11.9 | [Media bookmark in the viewer top bar, no hint overlay](T11.9-viewer-media-bookmark-and-no-hint.md) | Viewer | M | T11.3, T11.5 | todo |
-| T11.10 | [Bookmark viewer navigates bookmarks, not post media](T11.10-bookmark-viewer-navigates-bookmarks.md) | Viewer | M | T11.3, T11.9 | todo |
+| T11.9 | [Media bookmark in the viewer top bar, no hint overlay](T11.9-viewer-media-bookmark-and-no-hint.md) | Viewer | M | T11.3, T11.5 | done |
+| T11.10 | [Bookmark viewer navigates bookmarks, not post media](T11.10-bookmark-viewer-navigates-bookmarks.md) | Viewer | M | T11.3, T11.9 | done |
+| T12.1 | [Pawchive API contract spike and source-adapter architecture](T12.1-pawchive-contract-and-source-architecture.md) | Sources | M | — | todo |
+| T12.2 | [Source registry, `SourceRef`, and dual URL parsing](T12.2-source-registry-and-url-parsing.md) | Sources | M | T12.1 | todo |
+| T12.3 | [Persist source identity, upstream edit times, and preview-only files](T12.3-source-identity-migration.md) | Sources | M | T12.1 | todo |
+| T12.4 | [Extract a source-neutral HTTP transport](T12.4-source-neutral-http-client.md) | Sources | M | T12.2 | todo |
+| T12.5 | [Move cum.st behind the source adapter with zero behaviour change](T12.5-cumst-adapter-parity.md) | Sources | M | T12.2, T12.4 | todo |
+| T12.6 | [Pawchive API adapter and canonical payload mapping](T12.6-pawchive-adapter.md) | Sources | L | T12.1, T12.2, T12.3, T12.4 | todo |
+| T12.7 | [Source-aware extraction and media persistence](T12.7-source-aware-extraction-and-media.md) | Sources | M | T12.5, T12.6 | todo |
+| T12.8 | [Crawler and sync loop for multiple sources](T12.8-crawler-and-sync-multi-source.md) | Sources | L | T12.7 | todo |
+| T12.9 | [Web UI and media presentation for multiple sources](T12.9-web-ui-source-awareness.md) | Sources | M | T12.8 | todo |
+| T12.10 | [Pawchive fixtures, offline tests, live smoke, and docs](T12.10-tests-fixtures-and-docs.md) | Sources | M | T12.9 | todo |
+| T12.11 | [Pawchive acceptance run and epic close-out](T12.11-pawchive-acceptance.md) | Sources | S | T12.10 | todo |
 
 ## Build order
 
@@ -118,6 +130,12 @@ T11.1 + T9.4 → T11.3 (media bookmarks open the merged viewer)
 T11.1 + T8.7 + T8.8 → T11.4 (decode-before-paint, no forward black flash)
 T11.3 + T11.5 → T11.9 (media bookmark in the viewer top bar, no hint)
 T11.3 + T11.9 → T11.10 (bookmark viewer plays bookmarks, not post media)
+T12.1 (contract + architecture) → T12.2 (registry/ref) → T12.4 (transport)
+T12.1 + T12.2 → T12.3 (source identity migration)
+T12.2 + T12.4 → T12.5 (cum.st adapter parity)
+T12.1 + T12.3 + T12.4 → T12.6 (pawchive adapter)
+T12.5 + T12.6 → T12.7 (extraction/media) → T12.8 (crawler) → T12.9 (web UI)
+T12.9 → T12.10 (tests/fixtures/docs) → T12.11 (acceptance)
 T7.0 audit first
 T5.3 last
 ```
@@ -134,5 +152,6 @@ T5.3 last
 2. Pasting `https://cum.st/creators/patreon/274608` yields 782 posts and every caption link.
 3. A second sync takes seconds and only touches new/edited posts.
 4. Every link is visible, classified, searchable, and exportable.
-5. Attachments show thumbnail, size, dimensions and a working edge URL.
+5. Attachments show a thumbnail, a working edge URL, and size/dimensions when the source supplies them.
 6. `uv run pytest` is green offline.
+7. A pawchive.pw creator can be added, synced, browsed, bookmarked and re-synced through the same UI, with preview-only media labelled honestly.

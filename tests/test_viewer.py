@@ -450,10 +450,11 @@ def test_merged_overlay_lives_on_the_gallery_with_all_legacy_and_new_hooks(clien
         "data-lightbox-toast",
         "data-lightbox-fullscreen",
         "data-lightbox-expand",
-        "data-lightbox-hint",
+        "data-lightbox-media-bookmark",
         "data-lightbox-flash",
     ):
         assert hook in body
+    assert "data-lightbox-hint" not in body
     overlay = overlay_markup(body)
     assert 'role="dialog"' in overlay
     assert 'aria-modal="true"' in overlay
@@ -870,20 +871,22 @@ def test_fullscreen_and_expand_controls_are_icon_only_and_accessible(client, con
     assert "<svg" in overlay
 
 
-def test_hint_has_all_four_directions_and_is_expanded_only(client, conn):
+def test_the_onboarding_hint_is_removed_everywhere(client, conn):
     creator_id = make_creator(conn)
     add_file(conn, add_post(conn, creator_id, 0), sha(1))
 
-    body = gallery_body(client, creator_id)
-    overlay = overlay_markup(body)
-    assert overlay.count("data-lightbox-hint") == 1
+    overlay = overlay_markup(gallery_body(client, creator_id))
+    assert "data-lightbox-hint" not in overlay
+    assert "viewer-hint" not in overlay
     for label in ("Newer post", "Older post", "Previous image", "Next image"):
-        assert f'<span class="viewer-hint-label">{label}</span>' in overlay
-    assert "Esc to close · F for fullscreen · first move hides this" in overlay
+        assert f'<span class="viewer-hint-label">{label}</span>' not in overlay
 
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
     css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
-    compact = css.split(".lightbox.is-compact .viewer-zone,", 1)[1].split("}", 1)[0]
-    assert ".viewer-hint" in compact
+    assert "hint" not in source.lower()
+    assert 'get("hint")' not in source
+    assert "quiet" not in source
+    assert ".viewer-hint" not in css
 
 
 def test_stylesheet_defines_compact_expanded_and_browser_states():
@@ -914,6 +917,36 @@ def test_stylesheet_defines_compact_expanded_and_browser_states():
 # --------------------------------------------------------------------------- #
 
 
+def test_top_media_bookmark_sits_beside_close_and_targets_the_visible_sha(client, conn):
+    creator_id = make_creator(conn)
+    add_file(conn, add_post(conn, creator_id, 0), sha(1))
+
+    overlay = overlay_markup(gallery_body(client, creator_id))
+
+    close_index = overlay.index("data-lightbox-close")
+    bookmark_index = overlay.index("data-lightbox-media-bookmark")
+    title_index = overlay.index("data-lightbox-title")
+    bar_index = overlay.index("data-lightbox-controls")
+    assert close_index < bookmark_index < title_index
+    # It is chrome, not a hideable bottom-bar control.
+    assert bookmark_index < bar_index
+    assert 'class="lightbox-icon lightbox-media-bookmark"' in overlay
+
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    toggle = source.split("function toggleBookmark(", 1)[1].split(
+        "function onKeydown(", 1
+    )[0]
+    assert '"/c/" +' in toggle
+    assert '"/media/" +' in toggle
+    assert '"/bookmark?format=json&next="' in toggle
+    assert '"/p/" +' not in toggle
+    assert "item.sha256" in toggle
+    assert "syncBookmarkControl(item)" in toggle
+    # The menu no longer has any post bookmark path.
+    assert "bookmark_post" not in source
+    assert "data-bookmark-target=\"post\"" not in source
+
+
 def test_control_bar_has_exactly_one_of_each_control(client, conn):
     creator_id = make_creator(conn)
     add_file(conn, add_post(conn, creator_id, 0), sha(1))
@@ -926,7 +959,9 @@ def test_control_bar_has_exactly_one_of_each_control(client, conn):
     assert overlay.count("data-lightbox-post-prev") == 1
     assert overlay.count("data-lightbox-post-next") == 1
     assert overlay.count("data-lightbox-fullscreen") == 1
-    assert overlay.count("data-bookmark-button") == 1
+    # T11.9: bookmarking lives in the always-visible top control, not the bar.
+    assert overlay.count("data-lightbox-media-bookmark") == 1
+    assert overlay.count("data-bookmark-button") == 0
     # The invisible left/right media zones remain; the up/down post zones are
     # replaced by visible buttons.
     assert overlay.count('data-viewer-action="prev-image"') == 1
@@ -962,17 +997,26 @@ def test_control_bar_buttons_are_labelled_with_states(client, conn):
     assert "hidden" in handle.group(0)
     assert "Show controls" in overlay.split("data-lightbox-controls-handle", 1)[1][:160]
 
-    # The bar bookmark keeps the shared macro's POST / next contract and the
-    # target-specific pressed state.
-    form = re.search(r"<form[^>]*data-bookmark-form[^>]*>", overlay)
-    assert form
-    assert 'method="post"' in form.group(0)
-    assert f'action="/c/{creator_id}/p/2183930591/bookmark"' in overlay
-    assert '<input type="hidden" name="next"' in overlay
-    bookmark = re.search(r"<button[^>]*data-bookmark-button[^>]*>", overlay)
+    # T11.9: the top-right control bookmarks the visible medium. It starts
+    # disabled until a payload supplies a sha and grows a kind-specific label.
+    bookmark = re.search(
+        r"<button[^>]*data-lightbox-media-bookmark[^>]*>", overlay
+    )
     assert bookmark
+    assert 'type="button"' in bookmark.group(0)
     assert 'aria-pressed="false"' in bookmark.group(0)
-    assert 'aria-label="Bookmark post: this post"' in bookmark.group(0)
+    assert 'aria-label="Bookmark media"' in bookmark.group(0)
+    assert "disabled" in bookmark.group(0)
+    assert "data-bookmark-form" not in overlay
+
+    source = (STATIC_DIR / "lightbox.js").read_text(encoding="utf-8")
+    sync = source.split("function syncBookmarkControl(", 1)[1].split(
+        "function updateChrome(", 1
+    )[0]
+    assert "item.sha256" in sync
+    assert 'mediaBookmarkButton.disabled = !sha || !activeCreatorId' in sync
+    for label in ("Bookmark ", "Remove bookmark", "kindName"):
+        assert label in sync
 
 
 def test_chrome_state_is_explicit_and_never_timed():
@@ -1055,8 +1099,18 @@ def test_visible_post_buttons_use_the_keyboard_post_actions():
     assert 'ArrowDown: "next-post"' in source
     assert 'go("prev-post")' in source
     assert 'go("next-post")' in source
-    assert "postPrevButton.disabled = !(payload && payload.previous_post)" in source
-    assert "postNextButton.disabled = !(payload && payload.next_post)" in source
+    assert (
+        "postPrevButton.disabled =\n        !canCrossPosts || !(payload && payload.previous_post)"
+        in source
+    )
+    assert (
+        "postNextButton.disabled =\n        !canCrossPosts || !(payload && payload.next_post)"
+        in source
+    )
+    # T11.10: bookmarks playlists disable vertical post navigation entirely.
+    jump = source.split("function go(", 1)[1].split("function openOverlay(", 1)[0]
+    assert "if (bookmarkContext())" in jump
+    assert "var canCrossPosts = !bookmarkContext();" in source
 
 
 def test_control_bar_styles_and_zone_cleanup():
@@ -1120,24 +1174,16 @@ def test_overflow_menu_holds_the_secondary_post_actions(client, conn):
     menu_start = overlay.index("data-lightbox-menu")
     post_index = overlay.index("data-lightbox-post href")
     original_index = overlay.index("data-lightbox-original")
-    bookmark_index = overlay.index("data-bookmark-form")
-    assert menu_start < post_index < original_index < bookmark_index
+    assert menu_start < post_index < original_index
     assert overlay.count("data-lightbox-post href") == 1
     assert overlay.count("data-lightbox-original") == 1
+    # T11.9: the post bookmark is gone; bookmarking is media-only at the top.
+    assert "data-bookmark-form" not in overlay
+    assert "data-lightbox-bookmark" not in overlay
 
     # The menu is a plain disclosure, not an ARIA menu.
     assert 'role="menu"' not in overlay
     assert 'role="menuitem"' not in overlay
-
-    # The bookmark keeps the shared macro's POST / next contract inside it.
-    form = re.search(r"<form[^>]*data-bookmark-form[^>]*>", overlay)
-    assert form and 'method="post"' in form.group(0)
-    assert f'action="/c/{creator_id}/p/2183930591/bookmark"' in overlay
-    assert '<input type="hidden" name="next"' in overlay
-    bookmark = re.search(r"<button[^>]*data-bookmark-button[^>]*>", overlay)
-    assert bookmark
-    assert 'aria-pressed="false"' in bookmark.group(0)
-    assert 'aria-label="Bookmark post: this post"' in bookmark.group(0)
 
 
 def test_post_arrows_are_icon_only_and_keep_edge_states(client, conn):

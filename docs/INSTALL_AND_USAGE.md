@@ -401,9 +401,10 @@ newest posts first. Pagination counts posts, so a post's media stay together.
 - **Apply** runs the filters; **Clear** resets them.
 
 Each tile shows a blurred thumbnail (unless blur is off), title, dimensions and file
-size, plus a three-dot action menu whose only action is the icon-only bookmark toggle.
-Clicking a tile opens the lightweight lightbox: arrow keys move, `Esc` closes, and links
-go to the post or the original file after **Load**. Menu clicks never open the lightbox.
+size, plus a direct icon-only media bookmark toggle in its top-right corner.
+Clicking the tile opens the lightweight lightbox: arrow keys move, `Esc` closes, and links
+go to the post or the original file after **Load**. Bookmark clicks never open the
+lightbox.
 
 Click any tile, or **Open viewer** for the first tile on the page.
 
@@ -418,11 +419,13 @@ viewer page and no page navigation.
 - Shows one media item at a time with a counter (`3 / 42`).
 - Media is loaded from the cum.st edge host; nothing is cached to disk.
 - Videos have native controls; images fill the stage when expanded.
-- Left/right steps through the post's media and crosses into a neighbouring post at
-  the edges; up/down jumps between posts.
-- The first-run hint shows `↑` newer post, `↓` older post, `←` previous image,
-  `→` next image, plus `Esc` to unwind a layer and `F` for fullscreen. The hint
-  appears in the expanded layer and disappears on the first move.
+- From a gallery, left/right steps through the post's media and crosses into a
+  neighbouring post at the edges; up/down jumps between posts.
+- From **Bookmarks → Media**, left/right walks the filtered bookmark playlist across
+  library pages and the counter reads `3 of 83 bookmarks`. Up/down and vertical swipe
+  are disabled there, so navigation can never leave the bookmark set.
+- The bookmark control in the top-right bookmarks the visible medium only. Post
+  bookmarking stays on creator rows, post pages and post cards.
 - The expand control turns the compact lightbox into the full-viewport viewer;
   `F` or the fullscreen control requests browser fullscreen.
 - `Esc` unwinds one layer at a time: browser fullscreen first, then the overlay.
@@ -435,22 +438,24 @@ viewer page and no page navigation.
 | `←` / `→` | Previous / next media in the post. |
 | `↑` / `↓` | Newer / older post. |
 | `b` | Bookmark or unbookmark the current media item. |
-| `Shift+B` | Bookmark or unbookmark the current post. |
 | `f` | Toggle fullscreen. |
 | `Esc` | Exit fullscreen first, then close the overlay. |
 | `Tab` / `Shift+Tab` | Keep focus inside the viewer. |
 
-**Mouse and touch** — wheel up/down moves between posts, wheel left/right moves between
-media. Swipe horizontally for media and vertically for posts. Click zones on the left,
-right, top and bottom edges do the same.
+**Mouse and touch** — wheel up/down moves between posts and wheel left/right moves
+between media. Swipe horizontally for media and vertically for posts. Click zones on the
+left, right, top and bottom edges do the same. In the bookmarks playlist only horizontal
+movement applies.
 
 The merged overlay is a page state, not a route: opening or navigating it does not
-change the gallery URL, so filters and pagination stay exactly where they were.
-`?hint=0` and `?quiet=1` on the gallery suppress the first-run hint.
+change the gallery or bookmarks URL, so filters, tab and pagination stay exactly where
+they were.
 
-The controller uses read-only JSON at `/c/{creator}/viewer/data?post={post_id}` for
-the post playlist, neighbouring posts and preloading. It is not a viewer page and
-never renders HTML.
+The controller uses read-only JSON for playlists and preloading. A gallery uses
+`/c/{creator}/viewer/data?post={post_id}`; a bookmark tile uses
+`/bookmarks/viewer/data?view=media&creator={id}&sha={sha256}` and receives the whole
+filtered bookmark set (capped at 200 media rows as a payload guard). Neither is a
+viewer page and neither renders HTML.
 
 ### 6.7 Links explorer
 
@@ -500,6 +505,8 @@ remove them.
 - **All / Posts / Media** tabs with counts.
 - With no creator filter, bookmarks are **grouped by creator**: each section shows up
   to six newest bookmarks in the active tab plus a **View all N bookmarks** link.
+  On the **Media** tab those previews form one non-wrapping, horizontally scrollable
+  strip of gallery-sized tiles, with the **View all** control as the last tile.
 - **Creator filter** narrows the library to one creator and removes the six-item cap
   (shown once you have more than one creator).
 - Post bookmarks show title, creator, date, "Bookmarked N ago" and a remove button.
@@ -507,8 +514,9 @@ remove them.
   and a remove button.
 - **Posts** and **Media** tabs paginate independently (50 posts, 60 media items).
 
-Bookmark controls appear on creator post rows, post pages, attachment rows, gallery
-tiles and inside the fullscreen viewer.
+Bookmark controls appear on creator post rows, post pages, attachment rows and gallery
+tiles. Inside the fullscreen viewer, the top-right bookmark control targets only the
+visible image, GIF or video.
 
 Filtering the **Media** tab by a creator gives a tile grid of every saved media item:
 

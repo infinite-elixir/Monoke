@@ -160,6 +160,7 @@
                    target="_blank" rel="noopener noreferrer"
                    data-gallery-item
                    data-kind="{{ image.kind }}"
+                   data-bookmarked="{{ 'true' if image.is_bookmarked else 'false' }}"
                    data-full="{{ image.url }}"
                    data-thumb="{{ image.thumb_url or '' }}"
                    data-title="{{ group.title or image.filename }}"
@@ -181,23 +182,18 @@
                     <span class="gallery-badge">GIF</span>
                   {% endif %}
                 </a>
-                <details class="gallery-menu" data-gallery-menu>
-                  <summary class="gallery-menu-trigger"
-                           aria-label="Actions for {{ group.title or image.filename }}">
-                    <span aria-hidden="true">⋮</span>
-                  </summary>
-                  <div class="gallery-menu-panel">
-                    {{ bookmark_button(
-                      "/c/" ~ creator.id ~ "/media/" ~ image.sha256 ~ "/bookmark",
-                      image.is_bookmarked,
-                      filters.url_for(creator.id),
-                      "video" if image.is_video else ("gif" if image.is_gif else "image"),
-                      group.title or image.filename,
-                      compact=True,
-                      extra_class="gallery-bookmark"
-                    ) }}
-                  </div>
-                </details>
+                {# T11.9: one direct media bookmark control replaces the
+                   three-dot disclosure. It is a sibling of the thumbnail
+                   anchor, so activating it never opens the viewer. #}
+                {{ bookmark_button(
+                  "/c/" ~ creator.id ~ "/media/" ~ image.sha256 ~ "/bookmark",
+                  image.is_bookmarked,
+                  filters.url_for(creator.id),
+                  "video" if image.is_video else ("gif" if image.is_gif else "image"),
+                  group.title or image.filename,
+                  compact=True,
+                  extra_class="gallery-bookmark"
+                ) }}
                 <figcaption class="gallery-meta">
                   <span class="gallery-title" title="{{ image.filename }}">{{ image.filename }}</span>
                   <span class="gallery-facts">
@@ -241,7 +237,6 @@
     </section>
   {% endif %}
 
-  {% set bookmark_next = filters.url_for(creator.id) %}
   {% include "partials/lightbox.html" %}
 {% endblock %}
 

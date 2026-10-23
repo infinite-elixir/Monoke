@@ -50,11 +50,13 @@
            id="bookmark-media-{{ item.bookmark_id }}"
            href="{{ item.post_url }}"
            data-lightbox-open
+           data-viewer-context="bookmarks"
            data-missing
            data-creator-id="{{ item.creator_id }}"
            data-post-service-id="{{ item.post_service_id }}"
            data-sha256="{{ item.sha256 }}"
            data-kind="{{ item.kind or 'file' }}"
+           data-bookmarked="true"
            data-title="{{ item.post_title or item.filename }}"
            data-post-url="{{ item.post_url }}"
            aria-label="Open unavailable media for {{ item.filename }}">
@@ -69,10 +71,12 @@
          id="bookmark-media-{{ item.bookmark_id }}"
          href="{{ item.post_url }}"
          data-lightbox-open
+         data-viewer-context="bookmarks"
          data-creator-id="{{ item.creator_id }}"
          data-post-service-id="{{ item.post_service_id }}"
          data-sha256="{{ item.sha256 }}"
          data-kind="{{ item.kind }}"
+         data-bookmarked="true"
          data-full="{{ item.url }}"
          data-thumb="{{ item.thumb_url or '' }}"
          data-title="{{ item.post_title or item.filename }}"
@@ -195,18 +199,35 @@
                 <a href="{{ section.creator_url }}">{{ section.creator_name }}</a>
                 <span class="muted">{{ section.total }}</span>
               </h2>
-              <a class="button button-small" href="{{ section.view_all_url }}">View all {{ section.total }} bookmarks</a>
+              {% if view != "media" %}
+                <a class="button button-small" href="{{ section.view_all_url }}">View all {{ section.total }} bookmarks</a>
+              {% endif %}
             </div>
 
-            <div class="bookmark-preview{% if view != 'media' %} bookmark-post-list{% endif %}{% if view != 'posts' %} bookmark-media-grid{% endif %}">
-              {% for item in section.preview %}
-                {% if item.kind == "post" %}
-                  {{ bookmark_post_card(item, current_url) }}
-                {% else %}
+            {% if view == "media" %}
+              {# T9.5: one non-wrapping strip of gallery-sized tiles per creator,
+                 with the View all link as the last tile in the row. #}
+              <div class="bookmark-preview bookmark-media-row">
+                {% for item in section.preview %}
                   {{ bookmark_media_tile(item, current_url) }}
-                {% endif %}
-              {% endfor %}
-            </div>
+                {% endfor %}
+                <a class="bookmark-media-view-all"
+                   href="{{ section.view_all_url }}">
+                  <span class="bookmark-media-view-all-label">View all</span>
+                  <span class="bookmark-media-view-all-count">{{ section.total }} bookmarks</span>
+                </a>
+              </div>
+            {% else %}
+              <div class="bookmark-preview bookmark-post-list{% if view != 'posts' %} bookmark-media-grid{% endif %}">
+                {% for item in section.preview %}
+                  {% if item.kind == "post" %}
+                    {{ bookmark_post_card(item, current_url) }}
+                  {% else %}
+                    {{ bookmark_media_tile(item, current_url) }}
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
           </section>
         {% endfor %}
       </div>
@@ -277,7 +298,6 @@
     {% endif %}
   {% endif %}
 
-  {% set bookmark_next = current_url %}
   {% include "partials/lightbox.html" %}
 {% endblock %}
 

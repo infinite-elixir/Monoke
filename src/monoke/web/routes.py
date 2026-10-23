@@ -1298,6 +1298,74 @@ async def media_bookmark_toggle(request: Request, creator_id: int, sha256: str):
     return RedirectResponse(target, status_code=303)
 
 
+@router.get("/bookmarks/viewer/data", include_in_schema=False)
+def bookmarks_viewer_data(request: Request):
+    """Media-bookmark playlist for the viewer opened from /bookmarks (T11.10).
+
+    The playlist is the whole filtered library in ``created_at DESC, id DESC``
+    order, not a page and not the underlying post. It is deliberately capped by
+    ``db.MAX_BOOKMARK_LIMIT`` so the payload cannot grow unbounded; the counter
+    describes the returned (capped) prefix.
+    """
+    filters = BookmarkFilters.from_query(request.query_params)
+    sha = (request.query_params.get("sha") or "").strip()
+
+    conn = _connect()
+    try:
+        if filters.creator is not None and db.get_creator(conn, filters.creator) is None:
+            return JSONResponse({"error": "unknown creator"}, status_code=404)
+        rows, _total = db.list_media_bookmarks(
+            conn,
+            creator_id=filters.creator,
+            limit=db.MAX_BOOKMARK_LIMIT,
+            offset=0,
+        )
+    finally:
+        conn.close()
+
+    if not rows:
+        return JSONResponse({"error": "no media bookmarks"}, status_code=404)
+
+    media: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        row = _decorate_library_media(row)
+        media.append(
+            {
+                "index": index,
+                "sha256": row.get("sha256"),
+                "kind": row.get("kind"),
+                "url": row.get("url"),
+                "thumb_url": row.get("thumb_url"),
+                "filename": row.get("filename"),
+                "title": row.get("post_title") or row.get("filename"),
+                "creator_id": row.get("creator_id"),
+                "creator_name": row.get("creator_name"),
+                "post_service_id": row.get("post_service_id"),
+                "post_title": row.get("post_title"),
+                "post_url": row.get("post_url"),
+                "missing": bool(row.get("missing")),
+                "width": row.get("width"),
+                "height": row.get("height"),
+                "duration_ms": row.get("duration_ms"),
+                "bookmarked": True,
+            }
+        )
+
+    clicked_index = next(
+        (item["index"] for item in media if item.get("sha256") == sha), -1
+    )
+    return JSONResponse(
+        {
+            "context": "bookmarks",
+            "view": "media",
+            "creator_id": filters.creator,
+            "media": media,
+            "index": clicked_index,
+            "total": len(media),
+        }
+    )
+
+
 def _bookmark_pager(
     filters: BookmarkFilters, total: int, per_page: int, noun: str
 ) -> dict[str, Any]:
