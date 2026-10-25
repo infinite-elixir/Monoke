@@ -77,11 +77,17 @@
   --warning: var(--night-yellow);
   --danger: var(--night-red);
   --info: var(--night-blue5);
-  --kind-image: var(--text-secondary);
+  /* Imported supporting accents. Coral = images/visual media, gold = saved
+     items. Used in small doses only; blue stays the action colour. */
+  --coral: #ff8f82;
+  --coral-soft: #482a32;
+  --gold: #f5c76b;
+  --gold-soft: #40351f;
+  --kind-image: var(--coral);
   --kind-movie: var(--night-orange);
   --kind-series: var(--night-cyan);
   --kind-anime: var(--night-purple);
-  --kind-bookmark: var(--night-yellow);
+  --kind-bookmark: var(--gold);
   --volt: var(--marathon-volt);
 
   --font-ui: "Caskaydia Cove NF", "CaskaydiaCove Nerd Font Mono",
@@ -756,12 +762,32 @@ textarea {
   white-space: nowrap;
 }
 
-.badge-google_drive,
-.badge-mega,
-.badge-direct_media,
-.badge-video_host,
-.badge-shortener,
-.badge-social,
+/* Category chips carry a small tint of their own hue. The label remains the
+   primary identifier; filters stay neutral so the colour does not spread. */
+.badge-google_drive {
+  --badge-color: var(--accent);
+}
+
+.badge-mega {
+  --badge-color: var(--coral);
+}
+
+.badge-direct_media {
+  --badge-color: var(--gold);
+}
+
+.badge-video_host {
+  --badge-color: var(--kind-movie);
+}
+
+.badge-shortener {
+  --badge-color: var(--kind-anime);
+}
+
+.badge-social {
+  --badge-color: var(--kind-series);
+}
+
 .badge-cloud_other,
 .badge-site_asset,
 .badge-other {
@@ -769,7 +795,7 @@ textarea {
 }
 
 .badge-image {
-  --badge-color: var(--text-muted);
+  --badge-color: var(--coral);
 }
 
 .badge-video {
@@ -887,6 +913,16 @@ textarea {
   left: 5px;
   width: 1px;
   height: 12px;
+}
+
+.regmark-tl,
+.regmark-br {
+  color: var(--coral);
+}
+
+.regmark-tr,
+.regmark-bl {
+  color: var(--gold);
 }
 
 .regmark-tl {
@@ -2118,6 +2154,10 @@ tbody tr:hover {
   content: "";
 }
 
+.gallery-thumb[data-kind="image"] {
+  --kind-color: var(--kind-image);
+}
+
 .gallery-thumb[data-kind="video"] {
   --kind-color: var(--kind-movie);
 }
@@ -2859,11 +2899,15 @@ tbody tr:hover {
 }
 
 .gallery-kind-tab.is-current {
-  border-color: var(--accent);
-  background: var(--bg-selected);
+  border-color: var(--kind-color, var(--accent));
+  background: color-mix(
+    in srgb,
+    var(--kind-color, var(--accent)) 14%,
+    var(--bg-panel)
+  );
   color: var(--text);
   font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--accent);
+  box-shadow: inset 0 -2px 0 var(--kind-color, var(--accent));
 }
 
 .gallery-kind-count {

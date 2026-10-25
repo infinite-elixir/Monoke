@@ -77,6 +77,8 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T11.8 | [Remove the duplicate Gallery button](T11.8-remove-duplicate-gallery-button.md) | UI | S | T4.3 | done |
 | T11.9 | [Media bookmark in the viewer top bar, no hint overlay](T11.9-viewer-media-bookmark-and-no-hint.md) | Viewer | M | T11.3, T11.5 | done |
 | T11.10 | [Bookmark viewer navigates bookmarks, not post media](T11.10-bookmark-viewer-navigates-bookmarks.md) | Viewer | M | T11.3, T11.9 | done |
+| T11.11 | [Media opens fitted to the viewport, no expand control](T11.11-viewer-opens-fit-no-expand-control.md) | Viewer | M | T11.1, T11.2, T11.5 | todo |
+| T11.12 | [Fullscreen control in the bookmarks viewer](T11.12-bookmarks-viewer-fullscreen-control.md) | Viewer | S | T11.5, T11.10 | todo |
 | T12.1 | [Pawchive API contract spike and source-adapter architecture](T12.1-pawchive-contract-and-source-architecture.md) | Sources | M | — | todo |
 | T12.2 | [Source registry, `SourceRef`, and dual URL parsing](T12.2-source-registry-and-url-parsing.md) | Sources | M | T12.1 | todo |
 | T12.3 | [Persist source identity, upstream edit times, and preview-only files](T12.3-source-identity-migration.md) | Sources | M | T12.1 | todo |
@@ -132,6 +134,8 @@ T11.1 + T9.4 → T11.3 (media bookmarks open the merged viewer)
 T11.1 + T8.7 + T8.8 → T11.4 (decode-before-paint, no forward black flash)
 T11.3 + T11.5 → T11.9 (media bookmark in the viewer top bar, no hint)
 T11.3 + T11.9 → T11.10 (bookmark viewer plays bookmarks, not post media)
+T11.1 + T11.2 + T11.5 → T11.11 (fitted viewer, remove expand control)
+T11.5 + T11.10 → T11.12 (fullscreen control in the bookmarks viewer)
 T12.1 (contract + architecture) → T12.2 (registry/ref) → T12.4 (transport)
 T12.1 + T12.2 → T12.3 (source identity migration)
 T12.2 + T12.4 → T12.5 (cum.st adapter parity)

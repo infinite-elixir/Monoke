@@ -1,6 +1,6 @@
 # Monoke — UI Style Guide
 
-**Status:** v2.0 · merged from the Tokyo Night / Caskaydia design system and the
+**Status:** v2.1 · merged from the Tokyo Night / Caskaydia design system and the
 accessibility-and-states proposal in `style.md`.
 
 Monoke is a private, local-first media archive. The UI should read like a quiet
@@ -19,10 +19,11 @@ current markup, keyboard model and behavior; only visual tokens changed.
 
 ## 1. Principles
 
-1. **One action colour.** Blue is the interactive/action colour: links, primary
-   actions, active navigation, selection. Gold means *saved* (bookmarks). Coral /
-   kind colours appear only as media-kind markers. Volt is brand signal, not a
-   second accent.
+1. **One action colour, three support colours.** Blue is the interactive/action
+   colour: links, primary actions, active navigation, selection. Coral marks
+   images/visual media, gold marks saved items and video-adjacent categories.
+   Kind colours appear as small markers, chips and active-filter tints. Volt is
+   brand signal, not a second accent.
 2. **Borders over shadows.** Separation comes from 1px lines and background
    steps, not drop shadows or glassmorphism.
 3. **Density is a feature.** Use the 4px grid. Prefer a tighter vertical rhythm
@@ -69,6 +70,10 @@ Canonical variant: **Tokyo Night**. Dark is the only palette.
 | `night-orange` | `#ff9e64` | Video kind marker |
 | `night-red` | `#f7768e` | Danger / destructive only |
 | `night-purple` | `#bb9af7` | Audio kind marker |
+| `coral` | `#ff8f82` | Images / visual media accent |
+| `coral-soft` | `#482a32` | Coral tint backing |
+| `gold` | `#f5c76b` | Saved items / direct-media accent |
+| `gold-soft` | `#40351f` | Gold tint backing |
 | `marathon-volt` | `#c8ff3c` | Brand signal only (§11) |
 
 ### 2.2 Semantic tokens
@@ -96,35 +101,40 @@ Components use semantic aliases, never raw palette values.
 | `--accent-pressed` | `#6b95ea` | Pressed primary action |
 | `--accent-text` | `night-bg` | Text on blue |
 | `--focus-ring` | `night-blue5` | **Keyboard focus**, distinct from selection |
-| `--kind-image` | `--text-secondary` | Neutral; see §2.4 |
+| `--kind-image` | `coral` | Image tile edge, kind dot/badge |
 | `--kind-movie` | `night-orange` | Video |
 | `--kind-series` | `night-cyan` | GIF |
 | `--kind-anime` | `night-purple` | Audio |
-| `--kind-bookmark` | `night-yellow` | Saved item |
+| `--kind-bookmark` | `gold` | Saved item |
 | `--success` / `--warning` / `--danger` / `--info` | green / yellow / red / blue5 | Semantic status only |
 | `--volt` | `marathon-volt` | Brand layer only |
 
 ### 2.3 Usage rules
 
 - **Blue** is actions, links, active navigation, selected controls.
-- **Gold** is bookmarks/favourites. It is not a general emphasis colour. Do not
-  let gold and warning collide in the same view without a text cue.
+- **Gold** is bookmarks/favourites and the direct-media category chip. It is not
+  a general emphasis colour. Do not let gold and warning collide in the same
+  view without a text cue.
+- **Coral** identifies images/visual media: tile edge, kind dot, `IMAGE` badge,
+  and the MEGA/image category chips. It is not the danger colour; danger stays
+  `#f7768e`.
 - **Orange / cyan / purple** identify video / GIF / audio. They never fill a
   card, button or detail page.
 - **Green** is success and completed states only.
-- **Red/pink** is error and destructive only. It is also the reason images are
-  **not** mapped to red as a kind colour (§2.4).
+- **Danger red** (`#f7768e`) is errors and destructive actions only. Coral is a
+  separate token and never signals error.
 - **Neutral** is everything structural: cards, panels, tables, inactive
-  controls, link categories.
-- Link categories (Drive, MEGA, direct media, video host, shortener, social,
-  image, other) stay neutral by decision. The label carries the meaning; colour
-  is reserved for media kind and saved state.
+  controls, and link-category filter controls.
+- Link category **chips** carry a small tint (Drive blue, MEGA coral, direct
+  media gold, video host orange, shortener purple, social cyan, image coral,
+  other/site/cloud neutral). The filter controls themselves stay neutral, and
+  the label always carries the meaning.
 
 ### 2.4 Media kind identity
 
 | Kind | Marker | Non-colour cue |
 |---|---|---|
-| Image | Neutral dot / neutral `IMAGE` badge | Label |
+| Image | Coral dot, 2px tile edge, coral `IMAGE` badge | Label |
 | Video | Orange dot, 2px tile edge, orange `VIDEO` badge | Play glyph, duration label |
 | GIF | Cyan dot, 2px tile edge, cyan `GIF` badge | `GIF` label |
 | Audio | Purple badge | `AUDIO` label |
@@ -133,14 +143,13 @@ Components use semantic aliases, never raw palette values.
 Applied in exactly these places:
 
 1. The `kind-badge` on attachment rows and detail headers.
-2. The 2px top edge of non-image gallery tiles.
-3. The kind dot on gallery media tabs.
-4. The bookmark control's saved state.
+2. The 2px top edge of every gallery tile (coral image, orange video, cyan GIF).
+3. The kind dot and active tint on gallery media tabs.
+4. The bookmark control's saved state (gold).
 5. The 2px left rule beside a media detail title when a kind is known.
 
-Everything else is neutral. Images deliberately stay neutral: Tokyo Night's red
-is the danger colour, and using it for a kind would imply error. This is a
-documented deviation from the generic proposal, not an oversight.
+The coral is deliberately distinct from the danger red; both are pink-adjacent
+but carry different labels, icons and placement. Never use coral for errors.
 
 ### 2.5 Contrast (measured)
 
@@ -157,6 +166,10 @@ the final token values; re-check if a value changes.
 | `#89ddff` focus / info | 11.27 | AAA |
 | `#9ece6a` success | 9.35 | AAA |
 | `#e0af68` bookmark / warning | 8.55 | AAA |
+| `#ff8f82` coral | 7.73 | AAA |
+| `#ff8f82` coral on 14% tint | 6.04 | AA |
+| `#f5c76b` gold | 10.80 | AAA |
+| `#f5c76b` gold on 14% tint | 7.85 | AAA |
 | `#f7768e` danger | 6.46 | AA+ |
 | `#ff9e64` video | 8.40 | AAA |
 | `#7dcfff` GIF | 9.96 | AAA |
@@ -343,8 +356,9 @@ Conventions:
 - Checkbox filters: native checkbox + label. `:has(input:checked)` adds a tint,
   weight and inset rule; the tick is the non-colour cue.
 - Facet links: `aria-current="true"` on the active item; inset blue rule.
-- Gallery kind tabs: neutral label/count plus a small kind dot; active tab gets
-  a blue border, tint and underline, with `aria-current="page"`.
+- Gallery kind tabs: neutral label/count plus a small kind dot; the active tab
+  takes its kind's border, 14% tint and underline (blue for *All media*), with
+  `aria-current="page"` and a weight change.
 - Do not invent new filter semantics or change ordering as part of styling.
 - Clear/reset is always visible when filters are active.
 - Category colour is intentionally absent; keep the mapping in the label.
@@ -360,8 +374,8 @@ Conventions:
   viewer and the bookmark button is a sibling.
 - Metadata order: title → facts (dimensions/size/date) → category/kind. Long
   names truncate with ellipsis and expose the full value.
-- Kind markers: 2px top edge for video/GIF; kind dot on tabs; kind badge on
-  attachment rows. Images stay neutral.
+- Kind markers: 2px top edge for every kind (coral image, orange video, cyan
+  GIF); kind dot and active tint on tabs; kind badge on attachment rows.
 - Badges on media use a dark 88% backing and a 1px light border so they remain
   legible over arbitrary imagery.
 - Actions are not hover-only. Every action is reachable by touch.
@@ -598,7 +612,8 @@ Do not attempt a broad rewrite in one pass.
       are markers only.
 - [x] 60/30/10 balance held; no full-page gradients or glows.
 - [x] Typography, spacing, borders and radii use the existing system.
-- [x] Link categories stay neutral; media kinds stay consistent.
+- [x] Category chips are tinted, filters stay neutral; media kinds stay
+      consistent.
 - [x] Hover, focus, selected, disabled, loading, empty and error states exist.
 
 ### Accessibility
@@ -641,11 +656,11 @@ work that has not been done yet.
 
 1. **Palette:** keep Tokyo Night; map the proposal's roles onto existing hues.
 2. **Accent spread:** tiny doses — media kind markers and bookmark state only.
-3. **Link categories:** neutral; labels carry meaning.
+3. **Link categories:** tinted chips, neutral filters; labels carry meaning.
 4. **Typography:** Caskaydia everywhere; no second family.
 5. **Muted text:** raised to `#8a94c0`; `#565f89` retained only as decorative.
 6. **Focus:** cyan (`#89ddff`) rather than the proposal's gold, to avoid
    colliding with warning/bookmark semantics and with blue selection.
-7. **Images:** neutral kind marker; Tokyo Night red is reserved for danger.
+7. **Images:** coral (`#ff8f82`) kind marker, distinct from the danger red.
 8. **Viewer:** behavior and markup preserved; only visual tokens changed.
 9. **Volt:** retained as the Marathon brand signal only.
