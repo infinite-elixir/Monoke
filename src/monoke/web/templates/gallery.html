@@ -48,6 +48,7 @@
     {% for tab in kind_tabs %}
       <a class="gallery-kind-tab{% if tab.current %} is-current{% endif %}"
          href="{{ tab.url }}"
+         data-media-kind="{{ tab.kind or 'all' }}"
          {% if tab.current %}aria-current="page"{% endif %}>
         {{ tab.label }} <span class="gallery-kind-count">{{ tab.count }}</span>
       </a>

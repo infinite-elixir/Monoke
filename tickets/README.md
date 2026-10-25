@@ -1,6 +1,6 @@
 # Monoke tickets
 
-77 tickets across 12 epics, targeting **cum.st** (OnlyHaven) and **pawchive.pw**. Every ticket
+78 tickets across 12 epics, targeting **cum.st** (OnlyHaven) and **pawchive.pw**. Every ticket
 is a self-contained markdown file with acceptance criteria, so it can be worked, reviewed, and
 closed independently.
 
@@ -65,6 +65,7 @@ Plan: [`../PLAN.md`](../PLAN.md)
 | T9.3 | [Bookmarks library page and navigation](T9.3-bookmarks-library-page.md) | Bookmarks | M | T9.1, T9.2, T4.1, T4.7 | done |
 | T9.4 | [Group bookmarks by creator](T9.4-bookmarks-by-creator-and-viewer.md) | Bookmarks | M | T9.3, T4.11 | done |
 | T9.5 | [Bookmark media previews are one compact row per creator](T9.5-bookmark-media-preview-row.md) | Bookmarks | S | T9.4 | done |
+| T9.6 | [Bookmarks survive creator deletion, plus a creator-scoped bookmark gallery](T9.6-bookmarks-survive-creator-deletion-and-creator-gallery.md) | Bookmarks | L | T9.1, T9.3, T9.4, T9.5, T11.10 | todo |
 | T10.1 | [Merge `carasoul-swiping-viewer` without the viewer rewrite](T10.1-merge-carasoul-sans-viewer.md) | Integration | L | T4.9, T4.11, T7.7, T9.3 | done |
 | T11.1 | [Merge the gallery lightbox and the fullscreen viewer](T11.1-merge-lightbox-and-viewer.md) | Viewer | L | T4.7, T8.8, T9.2 | done (mobile auto-fullscreen deferred by decision) |
 | T11.2 | [Sticky viewer controls, visible post buttons and hide control](T11.2-sticky-viewer-controls.md) | Viewer | M | T11.1 | done (browser pass manual) |
@@ -116,6 +117,7 @@ T0.2 + T4.4 → T9.1 → T9.2 (bookmark controls)
                      ↘ T9.3 (bookmarks library)
 T9.3 + T4.11 → T9.4 (bookmarks by creator)
 T9.4 → T9.5 (one compact media preview row per creator)
+T9.5 + T11.10 → T9.6 (bookmarks survive creator deletion, creator-scoped gallery)
 T7.2 + T7.6 + T4.11 → T7.7 (gallery kind tabs)
 T9.2 + T9.3 + T8.8 → T4.9 (icon-only bookmark and fullscreen controls)
 T4.9 + T7.6 → T4.11 (gallery grouped by post)

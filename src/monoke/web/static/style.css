@@ -57,20 +57,31 @@
   --bg-selected: rgb(122 162 247 / 12%);
   --border-subtle: var(--night-highlight);
   --border-strong: var(--night-border);
+  /* Control boundaries need 3:1 against their surface (WCAG 1.4.11).
+     --border-strong is a decorative separator and does not meet that. */
+  --border-control: #5a6690;
   --text-primary: var(--night-fg);
   --text-secondary: var(--night-fg-muted);
-  --text-muted: var(--night-comment);
-  --text-disabled: #414868;
+  /* Metadata that must be read. 5.76:1 on panels, 4.53:1 on hover rows. */
+  --text-muted: #8a94c0;
+  /* Non-essential decoration only (tick rails, regmarks). Never body copy. */
+  --text-decorative: var(--night-comment);
+  --text-disabled: #6b7aa8;
   --accent: var(--night-blue);
   --accent-hover: var(--night-blue5);
+  --accent-pressed: #6b95ea;
   --accent-text: var(--night-bg);
+  /* Cyan is deliberately distinct from the blue selection state. */
+  --focus-ring: var(--night-blue5);
   --success: var(--night-green);
   --warning: var(--night-yellow);
   --danger: var(--night-red);
   --info: var(--night-blue5);
+  --kind-image: var(--text-secondary);
   --kind-movie: var(--night-orange);
   --kind-series: var(--night-cyan);
   --kind-anime: var(--night-purple);
+  --kind-bookmark: var(--night-yellow);
   --volt: var(--marathon-volt);
 
   --font-ui: "Caskaydia Cove NF", "CaskaydiaCove Nerd Font Mono",
@@ -202,8 +213,12 @@ code {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+:where(button, input, select, textarea):disabled {
+  cursor: not-allowed;
 }
 
 [hidden] {
@@ -282,7 +297,7 @@ code {
 }
 
 .brand:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 3px;
 }
 
@@ -295,7 +310,7 @@ code {
 .site-nav a {
   display: flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 36px;
   padding: 4px 8px;
   border-left: 2px solid transparent;
   border-radius: var(--radius-control);
@@ -393,12 +408,15 @@ code {
   align-items: center;
   gap: var(--step-2);
   min-width: 0;
+  overflow: hidden;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.08em;
   line-height: 16px;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .topbar-context strong {
@@ -508,8 +526,30 @@ code {
 }
 
 .button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+.button:active:not([aria-disabled="true"]):not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.button-primary:active:not([aria-disabled="true"]):not(:disabled) {
+  border-color: var(--accent-pressed);
+  background: var(--accent-pressed);
+}
+
+/* Pressed toggles (Blur on/off, bookmarks) keep a text/shape cue as well as
+   colour. Bookmarks override this with the gold saved state below. */
+.button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--bg-selected);
+  color: var(--text-primary);
+}
+
+.button-primary[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-text);
 }
 
 .button-primary {
@@ -593,7 +633,7 @@ textarea {
 .variant-label select {
   min-height: 34px;
   padding: 0 10px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
   background: var(--bg-canvas);
   color: var(--text-primary);
@@ -605,16 +645,16 @@ textarea {
 .input-row input::placeholder,
 .filter-field input::placeholder {
   color: var(--text-muted);
+  opacity: 1;
 }
 
 .input-row input:focus-visible,
 .filter-field input:focus-visible,
 .filter-field select:focus-visible,
 .variant-label select:focus-visible {
-  border-color: var(--accent);
-  outline: 2px solid var(--accent);
+  border-color: var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
-  box-shadow: 0 0 0 2px rgb(122 162 247 / 30%);
 }
 
 .add-creator {
@@ -764,7 +804,7 @@ textarea {
 }
 
 .kind-image {
-  --kind-color: var(--text-muted);
+  --kind-color: var(--kind-image);
 }
 
 .kind-video {
@@ -824,7 +864,7 @@ textarea {
   position: absolute;
   width: 12px;
   height: 12px;
-  color: var(--text-muted);
+  color: var(--text-decorative);
   opacity: 0.6;
 }
 
@@ -901,6 +941,13 @@ textarea {
 
 .card:hover {
   border-color: var(--border-strong);
+}
+
+.card:focus-within,
+.post-row:focus-within,
+.attachment-row:focus-within,
+.bookmark-card:focus-within {
+  border-color: var(--border-control);
 }
 
 .creator-grid,
@@ -1229,7 +1276,7 @@ tbody tr:hover {
   grid-column: 1 / -1;
   margin: 0;
   padding: 8px 12px 12px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
   background: var(--bg-canvas);
 }
@@ -1255,7 +1302,8 @@ tbody tr:hover {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 4px;
+  min-height: 32px;
+  padding: 4px 6px;
   border-radius: var(--radius-control);
   color: var(--text-secondary);
   font-size: 14px;
@@ -1267,6 +1315,21 @@ tbody tr:hover {
   color: var(--text-primary);
 }
 
+/* Checked is carried by the native tick plus weight and an inset rule, not
+   colour alone. The surface stays neutral so a fully-checked category set does
+   not flood the panel with blue. */
+.check:has(input:checked) {
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.check:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
 .check span:first-of-type {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1274,6 +1337,10 @@ tbody tr:hover {
 }
 
 .check input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
   accent-color: var(--accent);
 }
 
@@ -1383,6 +1450,12 @@ tbody tr:hover {
   opacity: 1;
 }
 
+/* The form keeps its geometry while a request is in flight; only the border
+   signals the pending state. */
+.filters.htmx-request {
+  border-color: var(--accent);
+}
+
 #filter-status {
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -1449,6 +1522,7 @@ tbody tr:hover {
   background: var(--bg-selected);
   color: var(--text-primary);
   font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .facet-count {
@@ -2167,7 +2241,7 @@ tbody tr:hover {
   min-width: 32px;
   min-height: 32px;
   padding: 0 6px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
   color: var(--text-secondary);
   font-size: 12px;
@@ -2186,6 +2260,7 @@ tbody tr:hover {
   background: var(--bg-selected);
   color: var(--accent);
   font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .page-gap {
@@ -2741,14 +2816,41 @@ tbody tr:hover {
 }
 
 .gallery-kind-tab {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 36px;
   padding: 0.5rem 0.9rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   border-radius: 999px;
   background: var(--bg-elevated);
   color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
+}
+
+/* A small kind dot is the only colour on the strip; the label and count stay
+   neutral so colour is never the sole identifier. */
+.gallery-kind-tab::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--kind-color, var(--text-decorative));
+  content: "";
+}
+
+.gallery-kind-tab[data-media-kind="image"] {
+  --kind-color: var(--kind-image);
+}
+
+.gallery-kind-tab[data-media-kind="video"] {
+  --kind-color: var(--kind-movie);
+}
+
+.gallery-kind-tab[data-media-kind="gif"] {
+  --kind-color: var(--kind-series);
 }
 
 .gallery-kind-tab:hover {
@@ -2757,10 +2859,11 @@ tbody tr:hover {
 }
 
 .gallery-kind-tab.is-current {
-  border-color: var(--border-strong);
-  background: var(--bg-soft);
+  border-color: var(--accent);
+  background: var(--bg-selected);
   color: var(--text);
   font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .gallery-kind-count {
@@ -2795,6 +2898,16 @@ tbody tr:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-small);
   background: var(--bg-soft);
+  transition: border-color 120ms var(--ease);
+}
+
+.gallery-thumb:hover {
+  border-color: var(--border-control);
+}
+
+.gallery-thumb:focus-visible {
+  border-color: var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .gallery-thumb img.thumb {
@@ -2818,8 +2931,9 @@ tbody tr:hover {
   right: 0.4rem;
   bottom: 0.4rem;
   padding: 0.1rem 0.4rem;
+  border: 1px solid rgb(255 255 255 / 20%);
   border-radius: 999px;
-  background: rgb(8 12 18 / 72%);
+  background: rgb(8 12 18 / 88%);
   color: #fff;
   font-size: 0.65rem;
   font-weight: 700;
@@ -2841,7 +2955,7 @@ tbody tr:hover {
   width: 2.6rem;
   height: 2.6rem;
   border-radius: 50%;
-  background: rgb(8 12 18 / 64%);
+  background: rgb(8 12 18 / 82%);
   color: #fff;
   font-size: 1rem;
   transform: translate(-50%, -50%);
@@ -2873,7 +2987,8 @@ tbody tr:hover {
   display: block;
   overflow: hidden;
   color: var(--muted);
-  font-size: 0.73rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2951,6 +3066,13 @@ body.lightbox-open {
 
 .lightbox:focus {
   outline: none;
+}
+
+/* Programmatic/keyboard entry focuses the dialog container so arrow keys work.
+   A ring on the stage edge makes that state visible without adding chrome. */
+.lightbox:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -4px;
 }
 
 .lightbox-figure {
@@ -3077,7 +3199,7 @@ body.lightbox-open {
   min-width: 0;
   margin: 0 auto max(0.75rem, env(safe-area-inset-bottom));
   padding: 0.25rem 0.5rem calc(0.25rem + env(safe-area-inset-bottom));
-  border: 1px solid rgb(255 255 255 / 18%);
+  border: 1px solid rgb(255 255 255 / 30%);
   border-radius: var(--radius-small);
   background: #0b1017;
   color: #e8ecf2;
@@ -3133,7 +3255,7 @@ body.lightbox-open {
   height: 2rem;
   min-height: 2rem;
   padding: 0;
-  border: 1px solid rgb(255 255 255 / 25%);
+  border: 1px solid rgb(255 255 255 / 36%);
   border-radius: var(--radius-small);
   background: rgb(255 255 255 / 10%);
   color: #fff;
@@ -3199,7 +3321,7 @@ body.lightbox-open {
   min-width: 11rem;
   max-width: min(15rem, calc(100vw - 1.5rem));
   padding: 0.35rem;
-  border: 1px solid rgb(255 255 255 / 18%);
+  border: 1px solid rgb(255 255 255 / 30%);
   border-radius: var(--radius-small);
   background: #0b1017;
   box-shadow: 0 0.5rem 1.6rem rgb(0 0 0 / 65%);
@@ -3246,7 +3368,7 @@ a.lightbox-menu-item {
   gap: 0.35rem;
   min-height: 2.25rem;
   padding: 0.4rem 0.85rem;
-  border: 1px solid rgb(255 255 255 / 28%);
+  border: 1px solid rgb(255 255 255 / 40%);
   border-radius: 999px;
   background: #0b1017;
   color: #fff;
@@ -3300,7 +3422,7 @@ a.lightbox-menu-item {
   width: 2rem;
   height: 2rem;
   padding: 0;
-  border: 1px solid rgb(255 255 255 / 25%);
+  border: 1px solid rgb(255 255 255 / 36%);
   border-radius: var(--radius-small);
   background: rgb(255 255 255 / 10%);
   color: #fff;
@@ -3366,7 +3488,7 @@ a.lightbox-menu-item {
   flex: 0 0 auto;
   width: 2.75rem;
   height: 2.75rem;
-  border: 1px solid rgb(255 255 255 / 25%);
+  border: 1px solid rgb(255 255 255 / 36%);
   border-radius: 999px;
   background: rgb(255 255 255 / 10%);
   color: #fff;
@@ -3415,6 +3537,11 @@ a.lightbox-menu-item {
 .lightbox-media-bookmark:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.lightbox-media-bookmark[aria-pressed="true"] {
+  border-color: var(--kind-bookmark);
+  color: var(--kind-bookmark);
 }
 
 .lightbox-media-bookmark[aria-pressed="true"] svg {
@@ -3564,7 +3691,7 @@ a.lightbox-menu-item {
   gap: 0.4rem;
   margin: 0;
   padding: 0.32rem 0.7rem;
-  border: 1px solid rgb(255 255 255 / 20%);
+  border: 1px solid rgb(255 255 255 / 30%);
   border-radius: 999px;
   background: #0b1017;
   box-shadow: 0 4px 14px rgb(0 0 0 / 45%);
@@ -3676,11 +3803,12 @@ a.lightbox-menu-item {
 }
 
 /* The filled glyph is the non-colour cue; aria-pressed carries the same state
-   to assistive technology (T4.9). */
+   to assistive technology (T4.9). Gold marks a saved item, blue stays the
+   navigation/selection colour. */
 .bookmark-button.is-bookmarked {
-  border-color: var(--accent, var(--border-strong));
-  background: var(--bg-soft);
-  color: var(--text);
+  border-color: var(--kind-bookmark);
+  background: color-mix(in srgb, var(--kind-bookmark) 14%, transparent);
+  color: var(--kind-bookmark);
 }
 
 .bookmark-button.is-bookmarked .bookmark-icon {
@@ -3715,14 +3843,15 @@ a.lightbox-menu-item {
   min-width: 2rem;
   min-height: 2rem;
   padding: 0.25rem;
-  background: rgb(8 12 18 / 78%);
-  border-color: rgb(255 255 255 / 26%);
+  background: rgb(8 12 18 / 88%);
+  border-color: rgb(255 255 255 / 30%);
   color: #fff;
 }
 
 .gallery-bookmark .bookmark-button.is-bookmarked {
-  background: rgb(255 255 255 / 88%);
-  color: #10151c;
+  border-color: var(--kind-bookmark);
+  background: rgb(8 12 18 / 90%);
+  color: var(--kind-bookmark);
 }
 
 @media (pointer: coarse) {
@@ -3745,9 +3874,12 @@ a.lightbox-menu-item {
 }
 
 .bookmark-tab {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  min-height: 36px;
   padding: 0.4rem 0.75rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   border-radius: 999px;
   background: var(--bg-elevated);
   color: var(--muted);
@@ -3761,10 +3893,11 @@ a.lightbox-menu-item {
 }
 
 .bookmark-tab.is-current {
-  border-color: var(--border-strong);
-  background: var(--bg-soft);
+  border-color: var(--accent);
+  background: var(--bg-selected);
   color: var(--text);
   font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .bookmark-tab-count {
@@ -3965,4 +4098,41 @@ a.lightbox-menu-item {
 
 .viewer-toast[hidden] {
   display: none;
+}
+
+/* --------------------------------------------------------------------- */
+/* Interaction floor (merged style pass)                                 */
+/* --------------------------------------------------------------------- */
+
+/* Touch: raise the common controls to a comfortable target without changing
+   the desktop rhythm. */
+@media (pointer: coarse) {
+  .site-nav a,
+  .button,
+  .button-small,
+  .gallery-kind-tab,
+  .bookmark-tab,
+  .facet-link,
+  .page-number,
+  .check,
+  .sidebar-toggle,
+  .filter-field input,
+  .filter-field select {
+    min-height: 44px;
+  }
+
+  .sidebar-toggle {
+    min-width: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

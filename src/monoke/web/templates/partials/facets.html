@@ -4,13 +4,15 @@
     <ul class="facet-list">
       <li>
         <a class="facet-link{% if not filters.category %} active{% endif %}"
-           href="{{ filters.url_for(creator.id, category=None) }}">
+           href="{{ filters.url_for(creator.id, category=None) }}"
+           {% if not filters.category %}aria-current="true"{% endif %}>
           <span>All links</span><span class="facet-count">{{ summary.links or 0 }}</span>
         </a>
       </li>
       {% for facet in category_facets %}
         <li>
-          <a class="facet-link{% if facet.active %} active{% endif %}" href="{{ facet.url }}">
+          <a class="facet-link{% if facet.active %} active{% endif %}" href="{{ facet.url }}"
+             {% if facet.active %}aria-current="true"{% endif %}>
             <span>{{ facet.label }}</span><span class="facet-count">{{ facet.count }}</span>
           </a>
         </li>
@@ -44,17 +46,20 @@
     <ul class="facet-list">
       <li>
         <a class="facet-link{% if filters.dead is none %} active{% endif %}"
-           href="{{ filters.url_for(creator.id, dead=None) }}">
+           href="{{ filters.url_for(creator.id, dead=None) }}"
+           {% if filters.dead is none %}aria-current="true"{% endif %}>
           <span>All posts</span><span class="facet-count">{{ summary.posts or 0 }}</span>
         </a>
       </li>
       <li>
-        <a class="facet-link{% if dead_facet.active %} active{% endif %}" href="{{ dead_facet.url }}">
+        <a class="facet-link{% if dead_facet.active %} active{% endif %}" href="{{ dead_facet.url }}"
+           {% if dead_facet.active %}aria-current="true"{% endif %}>
           <span>Dead posts</span><span class="facet-count">{{ dead_facet.count }}</span>
         </a>
       </li>
       <li>
-        <a class="facet-link{% if alive_facet.active %} active{% endif %}" href="{{ alive_facet.url }}">
+        <a class="facet-link{% if alive_facet.active %} active{% endif %}" href="{{ alive_facet.url }}"
+           {% if alive_facet.active %}aria-current="true"{% endif %}>
           <span>Alive only</span>
         </a>
       </li>
